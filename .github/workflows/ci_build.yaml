@@ -24,19 +24,21 @@ jobs:
       with:
         registry-type: public
 
-    - run: docker pull public.ecr.aws/x9x6a4w4/kube-build:latest
-    - run: docker tag public.ecr.aws/x9x6a4w4/kube-build:latest public.ecr.aws/x9x6a4w4/kube-build:build-github_actions-5-v1.27.0-go1.20.3-bullseye.0
+    - run: docker build -t public.ecr.aws/x9x6a4w4/kube-scheduler:${{ github.sha }} -f Dockerfile-scheduler .
 
-    - run: make quick-release
-    - uses: actions/upload-artifact@v3
-      with:
-        name: kubernetes-images
-        path: _output/release-images
-    - uses: actions/upload-artifact@v3
-      with:
-        name: kubernetes-tars
-        path: _output/release-tars
-    - run: docker import _output/release-images/amd64/kube-scheduler.tar public.ecr.aws/x9x6a4w4/kube-scheduler:${{ github.sha }}
+#    - run: docker pull public.ecr.aws/x9x6a4w4/kube-build:latest
+#    - run: docker tag public.ecr.aws/x9x6a4w4/kube-build:latest public.ecr.aws/x9x6a4w4/kube-build:build-github_actions-5-v1.27.0-go1.20.3-bullseye.0
+#
+#    - run: make quick-release
+#    - uses: actions/upload-artifact@v3
+#      with:
+#        name: kubernetes-images
+#        path: _output/release-images
+#    - uses: actions/upload-artifact@v3
+#      with:
+#        name: kubernetes-tars
+#        path: _output/release-tars
+#    - run: docker import _output/release-images/amd64/kube-scheduler.tar public.ecr.aws/x9x6a4w4/kube-scheduler:${{ github.sha }}
     - run: docker push public.ecr.aws/x9x6a4w4/kube-scheduler:${{ github.sha }}
     - run: docker tag public.ecr.aws/x9x6a4w4/kube-scheduler:${{ github.sha }} public.ecr.aws/x9x6a4w4/kube-scheduler:v1.26.3
     - run: docker push public.ecr.aws/x9x6a4w4/kube-scheduler:v1.26.3
