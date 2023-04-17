@@ -1,0 +1,42 @@
+name: Release container images
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - v*
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+
+    - name: Login to Amazon ECR Public
+      id: login-ecr-public
+      uses: aws-actions/amazon-ecr-login@v1
+      with:
+        registry-type: public
+
+    - run: docker pull public.ecr.aws/x9x6a4w4/kube-build:latest
+    - run: docker tag public.ecr.aws/x9x6a4w4/kube-build:latest public.ecr.aws/x9x6a4w4/kube-build:build-github_actions-5-v1.27.0-go1.20.3-bullseye.0
+
+    - run: make quick-release
+    - uses: actions/upload-artifact@v3
+      with:
+        name: kubernetes-images
+        path: _output/release-images
+    - uses: actions/upload-artifact@v3
+      with:
+        name: kubernetes-tars
+        path: _output/release-tars
+    - run: docker import _output/release-images/amd64/kube-scheduler.tar public.ecr.aws/x9x6a4w4/kube-scheduler:${{ github.sha }}
+    - run: docker push public.ecr.aws/x9x6a4w4/kube-scheduler:${{ github.sha }}
+    - run: docker tag public.ecr.aws/x9x6a4w4/kube-scheduler:${{ github.sha }} public.ecr.aws/x9x6a4w4/kube-scheduler:v1.26.3
+    - run: docker push public.ecr.aws/x9x6a4w4/kube-scheduler:v1.26.3
