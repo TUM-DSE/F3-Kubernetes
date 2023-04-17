@@ -121,12 +121,20 @@ kube::build::get_docker_wrapped_binaries() {
   ### If you change any of these lists, please also update DOCKERIZED_BINARIES
   ### in build/BUILD. And kube::golang::server_image_targets
   local targets=(
-    "kube-apiserver,${KUBE_APISERVER_BASE_IMAGE}"
-    "kube-controller-manager,${KUBE_CONTROLLER_MANAGER_BASE_IMAGE}"
+#    "kube-apiserver,${KUBE_APISERVER_BASE_IMAGE}"
+#    "kube-controller-manager,${KUBE_CONTROLLER_MANAGER_BASE_IMAGE}"
     "kube-scheduler,${KUBE_SCHEDULER_BASE_IMAGE}"
-    "kube-proxy,${KUBE_PROXY_BASE_IMAGE}"
-    "kubectl,${KUBECTL_BASE_IMAGE}"
+#    "kube-proxy,${KUBE_PROXY_BASE_IMAGE}"
+#    "kubectl,${KUBECTL_BASE_IMAGE}"
   )
+
+#  local targets=(
+#    "kube-apiserver,${KUBE_APISERVER_BASE_IMAGE}"
+#    "kube-controller-manager,${KUBE_CONTROLLER_MANAGER_BASE_IMAGE}"
+#    "kube-scheduler,${KUBE_SCHEDULER_BASE_IMAGE}"
+#    "kube-proxy,${KUBE_PROXY_BASE_IMAGE}"
+#    "kubectl,${KUBECTL_BASE_IMAGE}"
+#  )
 
   echo "${targets[@]}"
 }
@@ -172,7 +180,7 @@ function kube::build::verify_prereqs() {
   fi
 
   KUBE_GIT_BRANCH=$(git symbolic-ref --short -q HEAD 2>/dev/null || true)
-  KUBE_ROOT_HASH=$(kube::build::short_hash "${HOSTNAME:-}:${KUBE_ROOT}:${KUBE_GIT_BRANCH}")
+  KUBE_ROOT_HASH=github_actions
   KUBE_BUILD_IMAGE_TAG_BASE="build-${KUBE_ROOT_HASH}"
   KUBE_BUILD_IMAGE_TAG="${KUBE_BUILD_IMAGE_TAG_BASE}-${KUBE_BUILD_IMAGE_VERSION}"
   KUBE_BUILD_IMAGE="${KUBE_BUILD_IMAGE_REPO}:${KUBE_BUILD_IMAGE_TAG}"
