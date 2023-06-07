@@ -66,7 +66,7 @@ func TestFPGAScheduling(t *testing.T) {
 		wantStatus *framework.Status
 	}{
 		{
-			name: "simple test",
+			name: "relative scores",
 			pod:  &v1.Pod{Spec: v1.PodSpec{NodeName: ""}, ObjectMeta: metav1.ObjectMeta{}},
 
 			recentUsageWeight:            1,
@@ -78,7 +78,22 @@ func TestFPGAScheduling(t *testing.T) {
 				{ObjectMeta: metav1.ObjectMeta{Name: "node2", Annotations: createFPGAStateAnnotation(5, 5)}},
 				{ObjectMeta: metav1.ObjectMeta{Name: "node3", Annotations: createFPGAStateAnnotation(10, 10)}},
 			},
-			expectedList: []framework.NodeScore{{Name: "node1", Score: framework.MaxNodeScore}, {Name: "node2", Score: 50}, {Name: "node3", Score: framework.MinNodeScore}},
+			expectedList: []framework.NodeScore{{Name: "node1", Score: framework.MaxNodeScore}, {Name: "node2", Score: 66}, {Name: "node3", Score: 33}},
+		},
+		{
+			name: "equal metrics equal scores",
+			pod:  &v1.Pod{Spec: v1.PodSpec{NodeName: ""}, ObjectMeta: metav1.ObjectMeta{}},
+
+			recentUsageWeight:            1,
+			hasFittingBitstreamWeight:    0,
+			recentReconfigurationsWeight: 1,
+
+			nodes: []*v1.Node{
+				{ObjectMeta: metav1.ObjectMeta{Name: "node1", Annotations: createFPGAStateAnnotation(0, 0)}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node2", Annotations: createFPGAStateAnnotation(0, 0)}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node3", Annotations: createFPGAStateAnnotation(0, 0)}},
+			},
+			expectedList: []framework.NodeScore{{Name: "node1", Score: framework.MaxNodeScore}, {Name: "node2", Score: framework.MaxNodeScore}, {Name: "node3", Score: framework.MaxNodeScore}},
 		},
 	}
 
@@ -101,12 +116,10 @@ func TestFPGAScheduling(t *testing.T) {
 				t.Errorf("failed to read %q from cycleState: %s", preScoreStateKey, err)
 			}
 
-			s, ok := c.(*preScoreState)
+			_, ok := c.(*preScoreState)
 			if !ok {
 				t.Errorf("%+v  convert to fpgascheduling.preScoreState error", c)
 			}
-
-			print(s.fpgaScore)
 
 			if !status.IsSuccess() {
 				if status.Code() != test.wantStatus.Code() {

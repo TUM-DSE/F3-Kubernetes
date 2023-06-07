@@ -23,7 +23,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
-	"k8s.io/kubernetes/pkg/scheduler/apis/config/validation"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/names"
 	"sort"
@@ -124,20 +123,28 @@ func (pl *FPGAScheduling) PreScore(
 		return sortedByRecentReconfigurations[i].recentReconfigurations < sortedByRecentReconfigurations[j].recentReconfigurations
 	})
 
-	getRelativeScore := func(sorted []nodePreScore, node string, weight float64) (float64, error) {
-		var position = -1
+	getRecentUsagePosition := func(sorted []nodePreScore, own nodePreScore) (int, error) {
 		for i, n := range sorted {
-			if n.nodeName == node {
-				position = i
-				break
+			// with this, equal usage receives equal scores
+			// comparing on the name will yield better scores for earlier (in the slice) nodes even if they have the same usage
+			if n.recentUsage == own.recentUsage {
+				return i, nil
 			}
 		}
-		if position == -1 {
-			return 0, fmt.Errorf("node %q not found in sorted list", node)
+		return -1, fmt.Errorf("node %q not found in sorted list", own.nodeName)
+	}
+
+	getRecentReconfigurationsPosition := func(sorted []nodePreScore, own nodePreScore) (int, error) {
+		for i, n := range sorted {
+			if n.recentReconfigurations == own.recentReconfigurations {
+				return i, nil
+			}
 		}
+		return -1, fmt.Errorf("node %q not found in sorted list", own.nodeName)
+	}
 
-		var relativeScore = float64((len(sorted) - position) / len(sorted))
-
+	getRelativeScore := func(lenSorted int, ownPosition int, weight float64) (float64, error) {
+		var relativeScore = (float64(lenSorted - ownPosition)) / float64(lenSorted)
 		return relativeScore * weight, nil
 	}
 
@@ -146,12 +153,20 @@ func (pl *FPGAScheduling) PreScore(
 	}
 	for _, preScore := range preScores {
 		// perform score calculation
-		relativeUsageScore, err := getRelativeScore(sortedByRecentUsage, preScore.nodeName, pl.args.RecentUsageWeight)
+		recentUsagePosition, err := getRecentUsagePosition(sortedByRecentUsage, preScore)
+		if err != nil {
+			return framework.NewStatus(framework.Error, fmt.Sprintf("failed to get recent usage position: %v", err))
+		}
+		relativeUsageScore, err := getRelativeScore(len(sortedByRecentUsage), recentUsagePosition, pl.args.RecentUsageWeight)
 		if err != nil {
 			return framework.NewStatus(framework.Error, fmt.Sprintf("failed to get relative usage score: %v", err))
 		}
 
-		relativeReconfigurationScore, err := getRelativeScore(sortedByRecentReconfigurations, preScore.nodeName, pl.args.RecentReconfigurationsWeight)
+		recentReconfigurationsPosition, err := getRecentReconfigurationsPosition(sortedByRecentReconfigurations, preScore)
+		if err != nil {
+			return framework.NewStatus(framework.Error, fmt.Sprintf("failed to get recent reconfigurations position: %v", err))
+		}
+		relativeReconfigurationScore, err := getRelativeScore(len(sortedByRecentReconfigurations), recentReconfigurationsPosition, pl.args.RecentReconfigurationsWeight)
 		if err != nil {
 			return framework.NewStatus(framework.Error, fmt.Sprintf("failed to get relative reconfiguration score: %v", err))
 		}
@@ -216,7 +231,7 @@ func getArgs(obj runtime.Object) (config.FPGASchedulingArgs, error) {
 	if !ok {
 		return config.FPGASchedulingArgs{}, fmt.Errorf("args are not of type FPGASchedulingArgs, got %T", obj)
 	}
-	return *ptr, validation.ValidateNodeAffinityArgs(nil, ptr)
+	return *ptr, nil
 }
 
 // New initializes a new plugin and returns it.
