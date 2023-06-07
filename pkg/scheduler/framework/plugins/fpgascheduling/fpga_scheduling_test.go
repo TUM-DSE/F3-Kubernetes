@@ -96,6 +96,18 @@ func TestFPGAScheduling(t *testing.T) {
 
 			status := p.(framework.PreScorePlugin).PreScore(ctx, state, test.pod, test.nodes)
 
+			c, err := state.Read(preScoreStateKey)
+			if err != nil {
+				t.Errorf("failed to read %q from cycleState: %s", preScoreStateKey, err)
+			}
+
+			s, ok := c.(*preScoreState)
+			if !ok {
+				t.Errorf("%+v  convert to fpgascheduling.preScoreState error", c)
+			}
+
+			print(s.fpgaScore)
+
 			if !status.IsSuccess() {
 				if status.Code() != test.wantStatus.Code() {
 					t.Errorf("InterPodAffinity#PreScore() returned unexpected status.Code got: %v, want: %v", status.Code(), test.wantStatus.Code())

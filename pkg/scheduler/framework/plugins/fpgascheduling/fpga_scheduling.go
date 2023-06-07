@@ -22,6 +22,8 @@ import (
 	"fmt"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/kubernetes/pkg/scheduler/apis/config"
+	"k8s.io/kubernetes/pkg/scheduler/apis/config/validation"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/names"
 	"sort"
@@ -29,7 +31,9 @@ import (
 
 // FPGAScheduling plugin filters nodes that set node.Spec.Unschedulable=true unless
 // the pod tolerates {key=node.kubernetes.io/unschedulable, effect:NoSchedule} taint.
-type FPGAScheduling struct{}
+type FPGAScheduling struct {
+	args config.FPGASchedulingArgs
+}
 
 var _ framework.PreScorePlugin = &FPGAScheduling{}
 var _ framework.ScorePlugin = &FPGAScheduling{}
@@ -73,11 +77,6 @@ func (pl *FPGAScheduling) PreScore(
 	pod *v1.Pod,
 	nodes []*v1.Node,
 ) *framework.Status {
-	// TODO Make weights configurable
-	var usageWeight float64 = 1
-	var reconfigurationWeight float64 = 1
-	var fittingBitstreamWeight float64 = 1
-
 	if len(nodes) == 0 {
 		// No nodes to score.
 		return framework.NewStatus(framework.Skip)
@@ -147,24 +146,24 @@ func (pl *FPGAScheduling) PreScore(
 	}
 	for _, preScore := range preScores {
 		// perform score calculation
-		relativeUsageScore, err := getRelativeScore(sortedByRecentUsage, preScore.nodeName, usageWeight)
+		relativeUsageScore, err := getRelativeScore(sortedByRecentUsage, preScore.nodeName, pl.args.RecentUsageWeight)
 		if err != nil {
 			return framework.NewStatus(framework.Error, fmt.Sprintf("failed to get relative usage score: %v", err))
 		}
 
-		relativeReconfigurationScore, err := getRelativeScore(sortedByRecentReconfigurations, preScore.nodeName, reconfigurationWeight)
+		relativeReconfigurationScore, err := getRelativeScore(sortedByRecentReconfigurations, preScore.nodeName, pl.args.RecentReconfigurationsWeight)
 		if err != nil {
 			return framework.NewStatus(framework.Error, fmt.Sprintf("failed to get relative reconfiguration score: %v", err))
 		}
 
 		var hasFittingBitstream float64
 		if preScore.hasFittingBitstreamNotImplementedYet {
-			hasFittingBitstream = fittingBitstreamWeight
+			hasFittingBitstream = pl.args.HasFittingBitstreamWeight
 		}
 
 		var score = float64(
-			(reconfigurationWeight*relativeReconfigurationScore+usageWeight*relativeUsageScore+fittingBitstreamWeight*hasFittingBitstream)/
-				(fittingBitstreamWeight+reconfigurationWeight+usageWeight)) * 100
+			(relativeReconfigurationScore+relativeUsageScore+hasFittingBitstream)/
+				(pl.args.RecentUsageWeight+pl.args.RecentReconfigurationsWeight+pl.args.HasFittingBitstreamWeight)) * 100
 
 		// Limitation: Scheduler expects int64 score
 		state.fpgaScore[preScore.nodeName] = int64(score)
@@ -182,7 +181,7 @@ func getPreScoreState(cycleState *framework.CycleState) (*preScoreState, error) 
 
 	s, ok := c.(*preScoreState)
 	if !ok {
-		return nil, fmt.Errorf("%+v  convert to interpodaffinity.preScoreState error", c)
+		return nil, fmt.Errorf("%+v  convert to fpgascheduling.preScoreState error", c)
 	}
 	return s, nil
 }
@@ -212,9 +211,22 @@ func (pl *FPGAScheduling) NormalizeScore(ctx context.Context, cycleState *framew
 	return nil
 }
 
+func getArgs(obj runtime.Object) (config.FPGASchedulingArgs, error) {
+	ptr, ok := obj.(*config.FPGASchedulingArgs)
+	if !ok {
+		return config.FPGASchedulingArgs{}, fmt.Errorf("args are not of type FPGASchedulingArgs, got %T", obj)
+	}
+	return *ptr, validation.ValidateNodeAffinityArgs(nil, ptr)
+}
+
 // New initializes a new plugin and returns it.
-func New(_ runtime.Object, _ framework.Handle) (framework.Plugin, error) {
-	return &FPGAScheduling{}, nil
+func New(plArgs runtime.Object, _ framework.Handle) (framework.Plugin, error) {
+	args, err := getArgs(plArgs)
+	if err != nil {
+		return nil, err
+	}
+
+	return &FPGAScheduling{args}, nil
 }
 
 // ScoreExtensions of the Score plugin.
