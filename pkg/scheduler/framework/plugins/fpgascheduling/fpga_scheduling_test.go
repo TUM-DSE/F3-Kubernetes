@@ -18,7 +18,11 @@ package fpgascheduling
 
 import (
 	"context"
+	"encoding/json"
 	"github.com/google/go-cmp/cmp"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	plugintesting "k8s.io/kubernetes/pkg/scheduler/framework/plugins/testing"
@@ -27,23 +31,69 @@ import (
 	"testing"
 )
 
+var namespaces = []runtime.Object{
+	&v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "primary"}},
+}
+
+func createFPGAStateAnnotation(recentUsage float64, recentReconfigurations int) map[string]string {
+	state := FPGANodeState{
+		RecentUsage:            recentUsage,
+		RecentReconfigurations: recentReconfigurations,
+	}
+
+	serialized, err := json.Marshal(state)
+	if err != nil {
+		panic(err)
+	}
+
+	return map[string]string{
+		"fpga-state": string(serialized),
+	}
+}
+
 func TestFPGAScheduling(t *testing.T) {
 	tests := []struct {
-		pod                                *v1.Pod
-		pods                               []*v1.Pod
-		nodes                              []*v1.Node
-		expectedList                       framework.NodeScoreList
-		name                               string
-		ignorePreferredTermsOfExistingPods bool
-		wantStatus                         *framework.Status
-	}{}
+		pod          *v1.Pod
+		pods         []*v1.Pod
+		nodes        []*v1.Node
+		expectedList framework.NodeScoreList
+		name         string
+
+		recentUsageWeight            float64
+		recentReconfigurationsWeight float64
+		hasFittingBitstreamWeight    float64
+
+		wantStatus *framework.Status
+	}{
+		{
+			name: "simple test",
+			pod:  &v1.Pod{Spec: v1.PodSpec{NodeName: ""}, ObjectMeta: metav1.ObjectMeta{}},
+
+			recentUsageWeight:            1,
+			hasFittingBitstreamWeight:    0,
+			recentReconfigurationsWeight: 1,
+
+			nodes: []*v1.Node{
+				{ObjectMeta: metav1.ObjectMeta{Name: "node1", Annotations: createFPGAStateAnnotation(0, 0)}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node2", Annotations: createFPGAStateAnnotation(5, 5)}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node3", Annotations: createFPGAStateAnnotation(10, 10)}},
+			},
+			expectedList: []framework.NodeScore{{Name: "node1", Score: framework.MaxNodeScore}, {Name: "node2", Score: 50}, {Name: "node3", Score: framework.MinNodeScore}},
+		},
+	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			state := framework.NewCycleState()
-			p := plugintesting.SetupPluginWithInformers(ctx, t, New, &config.InterPodAffinityArgs{HardPodAffinityWeight: 1, IgnorePreferredTermsOfExistingPods: test.ignorePreferredTermsOfExistingPods}, cache.NewSnapshot(test.pods, test.nodes), namespaces)
+
+			p := plugintesting.SetupPluginWithInformers(ctx, t, New, &config.FPGASchedulingArgs{
+				RecentUsageWeight:            test.recentUsageWeight,
+				RecentReconfigurationsWeight: test.recentReconfigurationsWeight,
+				HasFittingBitstreamWeight:    test.hasFittingBitstreamWeight,
+			}, cache.NewSnapshot(test.pods, test.nodes), namespaces)
+
 			status := p.(framework.PreScorePlugin).PreScore(ctx, state, test.pod, test.nodes)
 
 			if !status.IsSuccess() {
