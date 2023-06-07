@@ -29,9 +29,7 @@ import (
 
 // FPGAScheduling plugin filters nodes that set node.Spec.Unschedulable=true unless
 // the pod tolerates {key=node.kubernetes.io/unschedulable, effect:NoSchedule} taint.
-type FPGAScheduling struct {
-	sharedLister framework.SharedLister
-}
+type FPGAScheduling struct{}
 
 var _ framework.PreScorePlugin = &FPGAScheduling{}
 var _ framework.ScorePlugin = &FPGAScheduling{}
@@ -75,7 +73,7 @@ func (pl *FPGAScheduling) PreScore(
 	pod *v1.Pod,
 	nodes []*v1.Node,
 ) *framework.Status {
-	// TODO Make configurable
+	// TODO Make weights configurable
 	var usageWeight float64 = 1
 	var reconfigurationWeight float64 = 1
 	var fittingBitstreamWeight float64 = 1
@@ -83,10 +81,6 @@ func (pl *FPGAScheduling) PreScore(
 	if len(nodes) == 0 {
 		// No nodes to score.
 		return framework.NewStatus(framework.Skip)
-	}
-
-	if pl.sharedLister == nil {
-		return framework.NewStatus(framework.Error, "empty shared lister in InterPodAffinity PreScore")
 	}
 
 	type nodePreScore struct {
@@ -195,18 +189,12 @@ func getPreScoreState(cycleState *framework.CycleState) (*preScoreState, error) 
 
 // Score invoked at the Score extension point.
 func (pl *FPGAScheduling) Score(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod, nodeName string) (int64, *framework.Status) {
-	nodeInfo, err := pl.sharedLister.NodeInfos().Get(nodeName)
-	if err != nil {
-		return 0, framework.AsStatus(fmt.Errorf("failed to get node %q from Snapshot: %w", nodeName, err))
-	}
-	node := nodeInfo.Node()
-
 	s, err := getPreScoreState(cycleState)
 	if err != nil {
 		return 0, framework.AsStatus(err)
 	}
 
-	return s.fpgaScore[node.Name], nil
+	return s.fpgaScore[nodeName], nil
 }
 
 // NormalizeScore normalizes the score for each filteredNode.

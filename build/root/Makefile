@@ -527,3 +527,6 @@ else
 help:
 	hack/make-rules/make-help.sh
 endif
+
+scheduler:
+	docker build -t registry.k8s.io/kube-scheduler:v1.25.9 -f Dockerfile-scheduler .

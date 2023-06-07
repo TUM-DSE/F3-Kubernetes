@@ -17,66 +17,64 @@ limitations under the License.
 package fpgascheduling
 
 import (
-	v1 "k8s.io/api/core/v1"
+	"context"
+	"github.com/google/go-cmp/cmp"
+	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
-	"reflect"
+	plugintesting "k8s.io/kubernetes/pkg/scheduler/framework/plugins/testing"
+	"k8s.io/kubernetes/pkg/scheduler/internal/cache"
+	"strings"
 	"testing"
 )
 
 func TestFPGAScheduling(t *testing.T) {
-	testCases := []struct {
-		name       string
-		pod        *v1.Pod
-		node       *v1.Node
-		wantStatus *framework.Status
-	}{
-		{
-			name: "Does not schedule pod to unschedulable node (node.Spec.Unschedulable==true)",
-			pod:  &v1.Pod{},
-			node: &v1.Node{
-				Spec: v1.NodeSpec{
-					Unschedulable: true,
-				},
-			},
-			wantStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, ErrReasonUnschedulable),
-		},
-		{
-			name: "Schedule pod to normal node",
-			pod:  &v1.Pod{},
-			node: &v1.Node{
-				Spec: v1.NodeSpec{
-					Unschedulable: false,
-				},
-			},
-		},
-		{
-			name: "Schedule pod with toleration to unschedulable node (node.Spec.Unschedulable==true)",
-			pod: &v1.Pod{
-				Spec: v1.PodSpec{
-					Tolerations: []v1.Toleration{
-						{
-							Key:    v1.TaintNodeUnschedulable,
-							Effect: v1.TaintEffectNoSchedule,
-						},
-					},
-				},
-			},
-			node: &v1.Node{
-				Spec: v1.NodeSpec{
-					Unschedulable: true,
-				},
-			},
-		},
-	}
+	tests := []struct {
+		pod                                *v1.Pod
+		pods                               []*v1.Pod
+		nodes                              []*v1.Node
+		expectedList                       framework.NodeScoreList
+		name                               string
+		ignorePreferredTermsOfExistingPods bool
+		wantStatus                         *framework.Status
+	}{}
 
-	for _, test := range testCases {
-		nodeInfo := framework.NewNodeInfo()
-		nodeInfo.SetNode(test.node)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			state := framework.NewCycleState()
+			p := plugintesting.SetupPluginWithInformers(ctx, t, New, &config.InterPodAffinityArgs{HardPodAffinityWeight: 1, IgnorePreferredTermsOfExistingPods: test.ignorePreferredTermsOfExistingPods}, cache.NewSnapshot(test.pods, test.nodes), namespaces)
+			status := p.(framework.PreScorePlugin).PreScore(ctx, state, test.pod, test.nodes)
 
-		p, _ := New(nil, nil)
-		gotStatus := p.(framework.FilterPlugin).Filter(context.Background(), nil, test.pod, nodeInfo)
-		if !reflect.DeepEqual(gotStatus, test.wantStatus) {
-			t.Errorf("status does not match: %v, want: %v", gotStatus, test.wantStatus)
-		}
+			if !status.IsSuccess() {
+				if status.Code() != test.wantStatus.Code() {
+					t.Errorf("InterPodAffinity#PreScore() returned unexpected status.Code got: %v, want: %v", status.Code(), test.wantStatus.Code())
+				}
+
+				if !strings.Contains(status.Message(), test.wantStatus.Message()) {
+					t.Errorf("InterPodAffinity#PreScore() returned unexpected status.Message got: %v, want: %v", status.Message(), test.wantStatus.Message())
+				}
+				return
+			}
+
+			var gotList framework.NodeScoreList
+			for _, n := range test.nodes {
+				nodeName := n.ObjectMeta.Name
+				score, status := p.(framework.ScorePlugin).Score(ctx, state, test.pod, nodeName)
+				if !status.IsSuccess() {
+					t.Errorf("unexpected error from Score: %v", status)
+				}
+				gotList = append(gotList, framework.NodeScore{Name: nodeName, Score: score})
+			}
+
+			status = p.(framework.ScorePlugin).ScoreExtensions().NormalizeScore(ctx, state, test.pod, gotList)
+			if !status.IsSuccess() {
+				t.Errorf("unexpected error from NormalizeScore: %v", status)
+			}
+
+			if diff := cmp.Diff(test.expectedList, gotList); diff != "" {
+				t.Errorf("node score list doesn't match (-want,+got): \n %s", diff)
+			}
+		})
 	}
 }

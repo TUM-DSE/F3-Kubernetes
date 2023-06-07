@@ -60,6 +60,17 @@ type InterPodAffinityArgs struct {
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
+// FPGASchedulingArgs holds arguments used to configure the FPGAScheduling plugin.
+type FPGASchedulingArgs struct {
+	metav1.TypeMeta
+
+	RecentUsageWeight            float64
+	RecentReconfigurationsWeight float64
+	HasFittingBitstreamWeight    float64
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
 // NodeResourcesFitArgs holds arguments used to configure the NodeResourcesFit plugin.
 type NodeResourcesFitArgs struct {
 	metav1.TypeMeta

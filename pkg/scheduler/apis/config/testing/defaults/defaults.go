@@ -32,6 +32,7 @@ var PluginsV1beta3 = &config.Plugins{
 			{Name: names.NodeAffinity, Weight: 2},
 			{Name: names.NodePorts},
 			{Name: names.NodeResourcesFit, Weight: 1},
+			{Name: names.FPGAScheduling, Weight: 1},
 			{Name: names.VolumeRestrictions},
 			{Name: names.EBSLimits},
 			{Name: names.GCEPDLimits},
@@ -110,6 +111,7 @@ var ExpandedPluginsV1beta3 = &config.Plugins{
 			{Name: names.PodTopologySpread},
 			{Name: names.InterPodAffinity},
 			{Name: names.NodeResourcesBalancedAllocation},
+			{Name: names.FPGAScheduling},
 		},
 	},
 	Score: config.PluginSet{
@@ -123,6 +125,7 @@ var ExpandedPluginsV1beta3 = &config.Plugins{
 			// - This is a score coming from user preference.
 			{Name: names.NodeAffinity, Weight: 2},
 			{Name: names.NodeResourcesFit, Weight: 1},
+			{Name: names.FPGAScheduling, Weight: 1},
 			// Weight is tripled because:
 			// - This is a score coming from user preference.
 			// - Usage of node tainting to group nodes in the cluster is increasing becoming a use-case
@@ -189,6 +192,10 @@ var PluginConfigsV1beta3 = []config.PluginConfig{
 				Resources: []config.ResourceSpec{{Name: "cpu", Weight: 1}, {Name: "memory", Weight: 1}},
 			},
 		},
+	},
+	{
+		Name: "FPGAScheduling",
+		Args: &config.FPGASchedulingArgs{},
 	},
 	{
 		Name: "PodTopologySpread",
@@ -371,6 +378,14 @@ var PluginConfigsV1 = []config.PluginConfig{
 				Type:      config.LeastAllocated,
 				Resources: []config.ResourceSpec{{Name: "cpu", Weight: 1}, {Name: "memory", Weight: 1}},
 			},
+		},
+	},
+	{
+		Name: "FPGAScheduling",
+		Args: &config.FPGASchedulingArgs{
+			RecentUsageWeight:            1,
+			RecentReconfigurationsWeight: 1,
+			HasFittingBitstreamWeight:    1,
 		},
 	},
 	{
