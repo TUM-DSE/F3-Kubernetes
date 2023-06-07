@@ -176,9 +176,8 @@ func (pl *FPGAScheduling) PreScore(
 			hasFittingBitstream = pl.args.HasFittingBitstreamWeight
 		}
 
-		var score = float64(
-			(relativeReconfigurationScore+relativeUsageScore+hasFittingBitstream)/
-				(pl.args.RecentUsageWeight+pl.args.RecentReconfigurationsWeight+pl.args.HasFittingBitstreamWeight)) * 100
+		var score = ((relativeReconfigurationScore + relativeUsageScore + hasFittingBitstream) /
+			(pl.args.RecentUsageWeight + pl.args.RecentReconfigurationsWeight + pl.args.HasFittingBitstreamWeight)) * 100
 
 		// Limitation: Scheduler expects int64 score
 		state.fpgaScore[preScore.nodeName] = int64(score)
@@ -213,16 +212,7 @@ func (pl *FPGAScheduling) Score(ctx context.Context, cycleState *framework.Cycle
 
 // NormalizeScore normalizes the score for each filteredNode.
 func (pl *FPGAScheduling) NormalizeScore(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod, scores framework.NodeScoreList) *framework.Status {
-	// No need for normalizing here
-	// s, err := getPreScoreState(cycleState)
-	// if err != nil {
-	//	return framework.AsStatus(err)
-	// }
-	//for i := range scores {
-	//	fScore := float64(0)
-	//	scores[i].Score = int64(fScore)
-	//}
-
+	// No need for normalizing here, scores are already normalized in PreScore stage
 	return nil
 }
 
