@@ -47,7 +47,7 @@ import (
 	"k8s.io/kubernetes/pkg/proxy/healthcheck"
 	"k8s.io/kubernetes/pkg/proxy/metaproxier"
 	"k8s.io/kubernetes/pkg/proxy/metrics"
-	utilproxy "k8s.io/kubernetes/pkg/proxy/util"
+	proxyutil "k8s.io/kubernetes/pkg/proxy/util"
 	"k8s.io/kubernetes/pkg/util/async"
 	netutils "k8s.io/utils/net"
 )
@@ -312,8 +312,8 @@ func (info *endpointsInfo) IsTerminating() bool {
 }
 
 // GetZoneHint returns the zone hint for the endpoint.
-func (info *endpointsInfo) GetZoneHints() sets.String {
-	return sets.String{}
+func (info *endpointsInfo) GetZoneHints() sets.Set[string] {
+	return sets.Set[string]{}
 }
 
 // IP returns just the IP part of the endpoint, it's a part of proxy.Endpoint interface.
@@ -685,8 +685,14 @@ func NewProxier(
 		klog.InfoS("ClusterCIDR not specified, unable to distinguish between internal and external traffic")
 	}
 
+	isIPv6 := netutils.IsIPv6(nodeIP)
+	ipFamily := v1.IPv4Protocol
+	if isIPv6 {
+		ipFamily = v1.IPv6Protocol
+	}
+
 	// windows listens to all node addresses
-	nodePortAddresses := utilproxy.NewNodePortAddresses(nil)
+	nodePortAddresses := proxyutil.NewNodePortAddresses(ipFamily, nil)
 	serviceHealthServer := healthcheck.NewServiceHealthServer(hostname, recorder, nodePortAddresses, healthzServer)
 
 	hns, supportedFeatures := newHostNetworkService()
@@ -764,7 +770,6 @@ func NewProxier(
 		}
 	}
 
-	isIPv6 := netutils.IsIPv6(nodeIP)
 	proxier := &Proxier{
 		endPointsRefCount:     make(endPointsReferenceCountMap),
 		svcPortMap:            make(proxy.ServicePortMap),
@@ -788,10 +793,6 @@ func NewProxier(
 		mapStaleLoadbalancers: make(map[string]bool),
 	}
 
-	ipFamily := v1.IPv4Protocol
-	if isIPv6 {
-		ipFamily = v1.IPv6Protocol
-	}
 	serviceChanges := proxy.NewServiceChangeTracker(proxier.newServiceInfo, ipFamily, recorder, proxier.serviceMapChange)
 	endPointChangeTracker := proxy.NewEndpointChangeTracker(hostname, proxier.newEndpointInfo, ipFamily, recorder, proxier.endpointsMapChange)
 	proxier.endpointsChanges = endPointChangeTracker
@@ -1255,7 +1256,7 @@ func (proxier *Proxier) syncProxyRules() {
 		var allEndpointsTerminating, allEndpointsNonServing bool
 		someEndpointsServing := true
 
-		if utilfeature.DefaultFeatureGate.Enabled(kubefeatures.ProxyTerminatingEndpoints) && len(svcInfo.loadBalancerIngressIPs) > 0 {
+		if len(svcInfo.loadBalancerIngressIPs) > 0 {
 			// Check should be done only if comes under the feature gate or enabled
 			// The check should be done only if Spec.Type == Loadbalancer.
 			allEndpointsTerminating = proxier.isAllEndpointsTerminating(svcName, svcInfo.localTrafficDSR)
@@ -1263,7 +1264,7 @@ func (proxier *Proxier) syncProxyRules() {
 			someEndpointsServing = !allEndpointsNonServing
 			klog.V(4).InfoS("Terminating status checked for all endpoints", "svcClusterIP", svcInfo.ClusterIP(), "allEndpointsTerminating", allEndpointsTerminating, "allEndpointsNonServing", allEndpointsNonServing, "localTrafficDSR", svcInfo.localTrafficDSR)
 		} else {
-			klog.V(4).InfoS("Skipped terminating status check for all endpoints", "svcClusterIP", svcInfo.ClusterIP(), "proxyEndpointsFeatureGateEnabled", utilfeature.DefaultFeatureGate.Enabled(kubefeatures.ProxyTerminatingEndpoints), "ingressLBCount", len(svcInfo.loadBalancerIngressIPs))
+			klog.V(4).InfoS("Skipped terminating status check for all endpoints", "svcClusterIP", svcInfo.ClusterIP(), "ingressLBCount", len(svcInfo.loadBalancerIngressIPs))
 		}
 
 		for _, epInfo := range proxier.endpointsMap[svcName] {

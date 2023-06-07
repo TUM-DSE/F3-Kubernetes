@@ -40,6 +40,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apiserver/pkg/server/healthz"
@@ -57,11 +58,13 @@ import (
 	"k8s.io/component-base/configz"
 	"k8s.io/component-base/logs"
 	logsapi "k8s.io/component-base/logs/api/v1"
+	"k8s.io/component-base/metrics"
 	metricsfeatures "k8s.io/component-base/metrics/features"
 	"k8s.io/component-base/metrics/legacyregistry"
 	"k8s.io/component-base/metrics/prometheus/slis"
 	"k8s.io/component-base/version"
 	"k8s.io/component-base/version/verflag"
+	nodeutil "k8s.io/component-helpers/node/util"
 	"k8s.io/klog/v2"
 	"k8s.io/kube-proxy/config/v1alpha1"
 	api "k8s.io/kubernetes/pkg/apis/core"
@@ -205,10 +208,22 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&o.config.DetectLocal.InterfaceNamePrefix, "pod-interface-name-prefix", o.config.DetectLocal.InterfaceNamePrefix, "An interface prefix in the cluster. Kube-proxy considers traffic as local if originating from interfaces that match the given prefix. This argument should be set if DetectLocalMode is set to InterfaceNamePrefix.")
 }
 
+// newKubeProxyConfiguration returns a KubeProxyConfiguration with default values
+func newKubeProxyConfiguration() *kubeproxyconfig.KubeProxyConfiguration {
+	versionedConfig := &v1alpha1.KubeProxyConfiguration{}
+	proxyconfigscheme.Scheme.Default(versionedConfig)
+	internalConfig, err := proxyconfigscheme.Scheme.ConvertToVersion(versionedConfig, kubeproxyconfig.SchemeGroupVersion)
+	if err != nil {
+		panic(fmt.Sprintf("Unable to create default config: %v", err))
+	}
+
+	return internalConfig.(*kubeproxyconfig.KubeProxyConfiguration)
+}
+
 // NewOptions returns initialized Options
 func NewOptions() *Options {
 	return &Options{
-		config:      new(kubeproxyconfig.KubeProxyConfiguration),
+		config:      newKubeProxyConfiguration(),
 		healthzPort: ports.ProxyHealthzPort,
 		metricsPort: ports.ProxyStatusPort,
 		errCh:       make(chan error),
@@ -235,6 +250,8 @@ func (o *Options) Complete() error {
 			return err
 		}
 	}
+
+	o.platformApplyDefaults(o.config)
 
 	if err := o.processHostnameOverrideFlag(); err != nil {
 		return err
@@ -305,7 +322,7 @@ func (o *Options) Run() error {
 		return cleanupAndExit()
 	}
 
-	proxyServer, err := NewProxyServer(o)
+	proxyServer, err := newProxyServer(o.config, o.master)
 	if err != nil {
 		return err
 	}
@@ -436,25 +453,6 @@ func (o *Options) loadConfig(data []byte) (*kubeproxyconfig.KubeProxyConfigurati
 	return proxyConfig, nil
 }
 
-// ApplyDefaults applies the default values to Options.
-func (o *Options) ApplyDefaults(in *kubeproxyconfig.KubeProxyConfiguration) (*kubeproxyconfig.KubeProxyConfiguration, error) {
-	external, err := proxyconfigscheme.Scheme.ConvertToVersion(in, v1alpha1.SchemeGroupVersion)
-	if err != nil {
-		return nil, err
-	}
-
-	proxyconfigscheme.Scheme.Default(external)
-
-	internal, err := proxyconfigscheme.Scheme.ConvertToVersion(external, kubeproxyconfig.SchemeGroupVersion)
-	if err != nil {
-		return nil, err
-	}
-
-	out := internal.(*kubeproxyconfig.KubeProxyConfiguration)
-
-	return out, nil
-}
-
 // NewProxyCommand creates a *cobra.Command object with default parameters
 func NewProxyCommand() *cobra.Command {
 	opts := NewOptions()
@@ -502,14 +500,6 @@ with the apiserver API to configure the proxy.`,
 		},
 	}
 
-	var err error
-	opts.config, err = opts.ApplyDefaults(opts.config)
-	if err != nil {
-		klog.ErrorS(err, "Unable to create flag defaults")
-		// ACTION REQUIRED: Exit code changed from 255 to 1
-		os.Exit(1)
-	}
-
 	fs := cmd.Flags()
 	opts.AddFlags(fs)
 	fs.AddGoFlagSet(goflag.CommandLine) // for --boot-id-file and --machine-id-file
@@ -522,21 +512,68 @@ with the apiserver API to configure the proxy.`,
 // ProxyServer represents all the parameters required to start the Kubernetes proxy server. All
 // fields are required.
 type ProxyServer struct {
-	Client                 clientset.Interface
-	Proxier                proxy.Provider
-	Broadcaster            events.EventBroadcaster
-	Recorder               events.EventRecorder
-	ConntrackConfiguration kubeproxyconfig.KubeProxyConntrackConfiguration
-	Conntracker            Conntracker // if nil, ignored
-	ProxyMode              kubeproxyconfig.ProxyMode
-	NodeRef                *v1.ObjectReference
-	MetricsBindAddress     string
-	BindAddressHardFail    bool
-	EnableProfiling        bool
-	OOMScoreAdj            *int32
-	ConfigSyncPeriod       time.Duration
-	HealthzServer          healthcheck.ProxierHealthUpdater
-	localDetectorMode      kubeproxyconfig.LocalMode
+	Config *kubeproxyconfig.KubeProxyConfiguration
+
+	Client        clientset.Interface
+	Broadcaster   events.EventBroadcaster
+	Recorder      events.EventRecorder
+	NodeRef       *v1.ObjectReference
+	HealthzServer healthcheck.ProxierHealthUpdater
+	Hostname      string
+	NodeIP        net.IP
+
+	podCIDRs []string // only used for LocalModeNodeCIDR
+
+	Proxier proxy.Provider
+}
+
+// newProxyServer creates a ProxyServer based on the given config
+func newProxyServer(config *kubeproxyconfig.KubeProxyConfiguration, master string) (*ProxyServer, error) {
+	s := &ProxyServer{Config: config}
+
+	cz, err := configz.New(kubeproxyconfig.GroupName)
+	if err != nil {
+		return nil, fmt.Errorf("unable to register configz: %s", err)
+	}
+	cz.Set(config)
+
+	if len(config.ShowHiddenMetricsForVersion) > 0 {
+		metrics.SetShowHidden()
+	}
+
+	s.Hostname, err = nodeutil.GetHostname(config.HostnameOverride)
+	if err != nil {
+		return nil, err
+	}
+
+	s.Client, err = createClient(config.ClientConnection, master)
+	if err != nil {
+		return nil, err
+	}
+
+	s.NodeIP = detectNodeIP(s.Client, s.Hostname, config.BindAddress)
+	klog.InfoS("Detected node IP", "address", s.NodeIP.String())
+
+	s.Broadcaster = events.NewBroadcaster(&events.EventSinkImpl{Interface: s.Client.EventsV1()})
+	s.Recorder = s.Broadcaster.NewRecorder(proxyconfigscheme.Scheme, "kube-proxy")
+
+	s.NodeRef = &v1.ObjectReference{
+		Kind:      "Node",
+		Name:      s.Hostname,
+		UID:       types.UID(s.Hostname),
+		Namespace: "",
+	}
+
+	if len(config.HealthzBindAddress) > 0 {
+		s.HealthzServer = healthcheck.NewProxierHealthServer(config.HealthzBindAddress, 2*config.IPTables.SyncPeriod.Duration, s.Recorder, s.NodeRef)
+	}
+
+	s.Proxier, err = s.createProxier(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return s, nil
 }
 
 // createClient creates a kube client from the given config and masterOverride.
@@ -645,9 +682,9 @@ func (s *ProxyServer) Run() error {
 
 	// TODO(vmarmol): Use container config for this.
 	var oomAdjuster *oom.OOMAdjuster
-	if s.OOMScoreAdj != nil {
+	if s.Config.OOMScoreAdj != nil {
 		oomAdjuster = oom.NewOOMAdjuster()
-		if err := oomAdjuster.ApplyOOMScoreAdj(0, int(*s.OOMScoreAdj)); err != nil {
+		if err := oomAdjuster.ApplyOOMScoreAdj(0, int(*s.Config.OOMScoreAdj)); err != nil {
 			klog.V(2).InfoS("Failed to apply OOMScore", "err", err)
 		}
 	}
@@ -660,7 +697,7 @@ func (s *ProxyServer) Run() error {
 	// TODO(thockin): make it possible for healthz and metrics to be on the same port.
 
 	var errCh chan error
-	if s.BindAddressHardFail {
+	if s.Config.BindAddressHardFail {
 		errCh = make(chan error)
 	}
 
@@ -668,47 +705,12 @@ func (s *ProxyServer) Run() error {
 	serveHealthz(s.HealthzServer, errCh)
 
 	// Start up a metrics server if requested
-	serveMetrics(s.MetricsBindAddress, s.ProxyMode, s.EnableProfiling, errCh)
+	serveMetrics(s.Config.MetricsBindAddress, s.Config.Mode, s.Config.EnableProfiling, errCh)
 
-	// Tune conntrack, if requested
-	// Conntracker is always nil for windows
-	if s.Conntracker != nil {
-		max, err := getConntrackMax(s.ConntrackConfiguration)
-		if err != nil {
-			return err
-		}
-		if max > 0 {
-			err := s.Conntracker.SetMax(max)
-			if err != nil {
-				if err != errReadOnlySysFS {
-					return err
-				}
-				// errReadOnlySysFS is caused by a known docker issue (https://github.com/docker/docker/issues/24000),
-				// the only remediation we know is to restart the docker daemon.
-				// Here we'll send an node event with specific reason and message, the
-				// administrator should decide whether and how to handle this issue,
-				// whether to drain the node and restart docker.  Occurs in other container runtimes
-				// as well.
-				// TODO(random-liu): Remove this when the docker bug is fixed.
-				const message = "CRI error: /sys is read-only: " +
-					"cannot modify conntrack limits, problems may arise later (If running Docker, see docker issue #24000)"
-				s.Recorder.Eventf(s.NodeRef, nil, api.EventTypeWarning, err.Error(), "StartKubeProxy", message)
-			}
-		}
-
-		if s.ConntrackConfiguration.TCPEstablishedTimeout != nil && s.ConntrackConfiguration.TCPEstablishedTimeout.Duration > 0 {
-			timeout := int(s.ConntrackConfiguration.TCPEstablishedTimeout.Duration / time.Second)
-			if err := s.Conntracker.SetTCPEstablishedTimeout(timeout); err != nil {
-				return err
-			}
-		}
-
-		if s.ConntrackConfiguration.TCPCloseWaitTimeout != nil && s.ConntrackConfiguration.TCPCloseWaitTimeout.Duration > 0 {
-			timeout := int(s.ConntrackConfiguration.TCPCloseWaitTimeout.Duration / time.Second)
-			if err := s.Conntracker.SetTCPCloseWaitTimeout(timeout); err != nil {
-				return err
-			}
-		}
+	// Do platform-specific setup
+	err := s.platformSetup()
+	if err != nil {
+		return err
 	}
 
 	noProxyName, err := labels.NewRequirement(apis.LabelServiceProxyName, selection.DoesNotExist, nil)
@@ -725,7 +727,7 @@ func (s *ProxyServer) Run() error {
 	labelSelector = labelSelector.Add(*noProxyName, *noHeadlessEndpoints)
 
 	// Make informers that filter out objects that want a non-default service proxy.
-	informerFactory := informers.NewSharedInformerFactoryWithOptions(s.Client, s.ConfigSyncPeriod,
+	informerFactory := informers.NewSharedInformerFactoryWithOptions(s.Client, s.Config.ConfigSyncPeriod.Duration,
 		informers.WithTweakListOptions(func(options *metav1.ListOptions) {
 			options.LabelSelector = labelSelector.String()
 		}))
@@ -734,11 +736,11 @@ func (s *ProxyServer) Run() error {
 	// Note: RegisterHandler() calls need to happen before creation of Sources because sources
 	// only notify on changes, and the initial update (on process start) may be lost if no handlers
 	// are registered yet.
-	serviceConfig := config.NewServiceConfig(informerFactory.Core().V1().Services(), s.ConfigSyncPeriod)
+	serviceConfig := config.NewServiceConfig(informerFactory.Core().V1().Services(), s.Config.ConfigSyncPeriod.Duration)
 	serviceConfig.RegisterEventHandler(s.Proxier)
 	go serviceConfig.Run(wait.NeverStop)
 
-	endpointSliceConfig := config.NewEndpointSliceConfig(informerFactory.Discovery().V1().EndpointSlices(), s.ConfigSyncPeriod)
+	endpointSliceConfig := config.NewEndpointSliceConfig(informerFactory.Discovery().V1().EndpointSlices(), s.Config.ConfigSyncPeriod.Duration)
 	endpointSliceConfig.RegisterEventHandler(s.Proxier)
 	go endpointSliceConfig.Run(wait.NeverStop)
 
@@ -747,14 +749,14 @@ func (s *ProxyServer) Run() error {
 	informerFactory.Start(wait.NeverStop)
 
 	// Make an informer that selects for our nodename.
-	currentNodeInformerFactory := informers.NewSharedInformerFactoryWithOptions(s.Client, s.ConfigSyncPeriod,
+	currentNodeInformerFactory := informers.NewSharedInformerFactoryWithOptions(s.Client, s.Config.ConfigSyncPeriod.Duration,
 		informers.WithTweakListOptions(func(options *metav1.ListOptions) {
 			options.FieldSelector = fields.OneTermEqualSelector("metadata.name", s.NodeRef.Name).String()
 		}))
-	nodeConfig := config.NewNodeConfig(currentNodeInformerFactory.Core().V1().Nodes(), s.ConfigSyncPeriod)
+	nodeConfig := config.NewNodeConfig(currentNodeInformerFactory.Core().V1().Nodes(), s.Config.ConfigSyncPeriod.Duration)
 	// https://issues.k8s.io/111321
-	if s.localDetectorMode == kubeproxyconfig.LocalModeNodeCIDR {
-		nodeConfig.RegisterEventHandler(&proxy.NodePodCIDRHandler{})
+	if s.Config.DetectLocalMode == kubeproxyconfig.LocalModeNodeCIDR {
+		nodeConfig.RegisterEventHandler(proxy.NewNodePodCIDRHandler(s.podCIDRs))
 	}
 	nodeConfig.RegisterEventHandler(s.Proxier)
 
@@ -774,23 +776,6 @@ func (s *ProxyServer) Run() error {
 
 func (s *ProxyServer) birthCry() {
 	s.Recorder.Eventf(s.NodeRef, nil, api.EventTypeNormal, "Starting", "StartKubeProxy", "")
-}
-
-func getConntrackMax(config kubeproxyconfig.KubeProxyConntrackConfiguration) (int, error) {
-	if config.MaxPerCore != nil && *config.MaxPerCore > 0 {
-		floor := 0
-		if config.Min != nil {
-			floor = int(*config.Min)
-		}
-		scaled := int(*config.MaxPerCore) * detectNumCPU()
-		if scaled > floor {
-			klog.V(3).InfoS("GetConntrackMax: using scaled conntrack-max-per-core")
-			return scaled, nil
-		}
-		klog.V(3).InfoS("GetConntrackMax: using conntrack-min")
-		return floor, nil
-	}
-	return 0, nil
 }
 
 // detectNodeIP returns the nodeIP used by the proxier

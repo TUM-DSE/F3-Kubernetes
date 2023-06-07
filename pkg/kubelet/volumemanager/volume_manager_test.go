@@ -39,7 +39,6 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/config"
 	containertest "k8s.io/kubernetes/pkg/kubelet/container/testing"
 	kubepod "k8s.io/kubernetes/pkg/kubelet/pod"
-	podtest "k8s.io/kubernetes/pkg/kubelet/pod/testing"
 	"k8s.io/kubernetes/pkg/volume"
 	volumetest "k8s.io/kubernetes/pkg/volume/testing"
 	"k8s.io/kubernetes/pkg/volume/util"
@@ -88,7 +87,7 @@ func TestGetMountedVolumesForPodAndGetVolumesInUse(t *testing.T) {
 				t.Fatalf("can't make a temp dir: %v", err)
 			}
 			defer os.RemoveAll(tmpDir)
-			podManager := kubepod.NewBasicPodManager(podtest.NewFakeMirrorClient())
+			podManager := kubepod.NewBasicPodManager()
 
 			node, pod, pv, claim := createObjects(test.pvMode, test.podMode)
 			kubeClient := fake.NewSimpleClientset(node, pod, pv, claim)
@@ -106,7 +105,7 @@ func TestGetMountedVolumesForPodAndGetVolumesInUse(t *testing.T) {
 				stopCh,
 				manager)
 
-			err = manager.WaitForAttachAndMount(pod)
+			err = manager.WaitForAttachAndMount(context.Background(), pod)
 			if err != nil && !test.expectError {
 				t.Errorf("Expected success: %v", err)
 			}
@@ -144,7 +143,7 @@ func TestWaitForAttachAndMountError(t *testing.T) {
 		t.Fatalf("can't make a temp dir: %v", err)
 	}
 	defer os.RemoveAll(tmpDir)
-	podManager := kubepod.NewBasicPodManager(podtest.NewFakeMirrorClient())
+	podManager := kubepod.NewBasicPodManager()
 
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -204,7 +203,7 @@ func TestWaitForAttachAndMountError(t *testing.T) {
 
 	podManager.SetPods([]*v1.Pod{pod})
 
-	err = manager.WaitForAttachAndMount(pod)
+	err = manager.WaitForAttachAndMount(context.Background(), pod)
 	if err == nil {
 		t.Errorf("Expected error, got none")
 	}
@@ -220,7 +219,7 @@ func TestInitialPendingVolumesForPodAndGetVolumesInUse(t *testing.T) {
 		t.Fatalf("can't make a temp dir: %v", err)
 	}
 	defer os.RemoveAll(tmpDir)
-	podManager := kubepod.NewBasicPodManager(podtest.NewFakeMirrorClient())
+	podManager := kubepod.NewBasicPodManager()
 
 	node, pod, pv, claim := createObjects(v1.PersistentVolumeFilesystem, v1.PersistentVolumeFilesystem)
 	claim.Status = v1.PersistentVolumeClaimStatus{
@@ -246,7 +245,7 @@ func TestInitialPendingVolumesForPodAndGetVolumesInUse(t *testing.T) {
 	go delayClaimBecomesBound(kubeClient, claim.GetNamespace(), claim.ObjectMeta.Name)
 
 	err = wait.Poll(100*time.Millisecond, 1*time.Second, func() (bool, error) {
-		err = manager.WaitForAttachAndMount(pod)
+		err = manager.WaitForAttachAndMount(context.Background(), pod)
 		if err != nil {
 			// Few "PVC not bound" errors are expected
 			return false, nil
@@ -265,7 +264,7 @@ func TestGetExtraSupplementalGroupsForPod(t *testing.T) {
 		t.Fatalf("can't make a temp dir: %v", err)
 	}
 	defer os.RemoveAll(tmpDir)
-	podManager := kubepod.NewBasicPodManager(podtest.NewFakeMirrorClient())
+	podManager := kubepod.NewBasicPodManager()
 
 	node, pod, _, claim := createObjects(v1.PersistentVolumeFilesystem, v1.PersistentVolumeFilesystem)
 
@@ -330,7 +329,7 @@ func TestGetExtraSupplementalGroupsForPod(t *testing.T) {
 			stopCh,
 			manager)
 
-		err = manager.WaitForAttachAndMount(pod)
+		err = manager.WaitForAttachAndMount(context.Background(), pod)
 		if err != nil {
 			t.Errorf("Expected success: %v", err)
 			continue

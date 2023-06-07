@@ -119,6 +119,7 @@ type nonCSILimits struct {
 	randomVolumeIDPrefix string
 }
 
+var _ framework.PreFilterPlugin = &nonCSILimits{}
 var _ framework.FilterPlugin = &nonCSILimits{}
 var _ framework.EnqueueExtensions = &nonCSILimits{}
 
@@ -208,6 +209,27 @@ func (pl *nonCSILimits) EventsToRegister() []framework.ClusterEvent {
 	}
 }
 
+// PreFilter invoked at the prefilter extension point
+//
+// If the pod haven't those types of volumes, we'll skip the Filter phase
+func (pl *nonCSILimits) PreFilter(ctx context.Context, _ *framework.CycleState, pod *v1.Pod) (*framework.PreFilterResult, *framework.Status) {
+	volumes := pod.Spec.Volumes
+	for i := range volumes {
+		vol := &volumes[i]
+		_, ok := pl.filter.FilterVolume(vol)
+		if ok || vol.PersistentVolumeClaim != nil || vol.Ephemeral != nil {
+			return nil, nil
+		}
+	}
+
+	return nil, framework.NewStatus(framework.Skip)
+}
+
+// PreFilterExtensions returns prefilter extensions, pod add and remove.
+func (pl *nonCSILimits) PreFilterExtensions() framework.PreFilterExtensions {
+	return nil
+}
+
 // Filter invoked at the filter extension point.
 func (pl *nonCSILimits) Filter(ctx context.Context, _ *framework.CycleState, pod *v1.Pod, nodeInfo *framework.NodeInfo) *framework.Status {
 	// If a pod doesn't have any volume attached to it, the predicate will always be true.
@@ -227,9 +249,6 @@ func (pl *nonCSILimits) Filter(ctx context.Context, _ *framework.CycleState, pod
 	}
 
 	node := nodeInfo.Node()
-	if node == nil {
-		return framework.NewStatus(framework.Error, "node not found")
-	}
 
 	var csiNode *storage.CSINode
 	var err error

@@ -172,13 +172,13 @@ func getPersistentVolumeClaimRetentionPolicy(set *apps.StatefulSet) apps.Statefu
 
 // claimOwnerMatchesSetAndPod returns false if the ownerRefs of the claim are not set consistently with the
 // PVC deletion policy for the StatefulSet.
-func claimOwnerMatchesSetAndPod(claim *v1.PersistentVolumeClaim, set *apps.StatefulSet, pod *v1.Pod) bool {
+func claimOwnerMatchesSetAndPod(logger klog.Logger, claim *v1.PersistentVolumeClaim, set *apps.StatefulSet, pod *v1.Pod) bool {
 	policy := getPersistentVolumeClaimRetentionPolicy(set)
 	const retain = apps.RetainPersistentVolumeClaimRetentionPolicyType
 	const delete = apps.DeletePersistentVolumeClaimRetentionPolicyType
 	switch {
 	default:
-		klog.Errorf("Unknown policy %v; treating as Retain", set.Spec.PersistentVolumeClaimRetentionPolicy)
+		logger.Error(nil, "Unknown policy, treating as Retain", "policy", set.Spec.PersistentVolumeClaimRetentionPolicy)
 		fallthrough
 	case policy.WhenScaled == retain && policy.WhenDeleted == retain:
 		if hasOwnerRef(claim, set) ||
@@ -214,7 +214,7 @@ func claimOwnerMatchesSetAndPod(claim *v1.PersistentVolumeClaim, set *apps.State
 
 // updateClaimOwnerRefForSetAndPod updates the ownerRefs for the claim according to the deletion policy of
 // the StatefulSet. Returns true if the claim was changed and should be updated and false otherwise.
-func updateClaimOwnerRefForSetAndPod(claim *v1.PersistentVolumeClaim, set *apps.StatefulSet, pod *v1.Pod) bool {
+func updateClaimOwnerRefForSetAndPod(logger klog.Logger, claim *v1.PersistentVolumeClaim, set *apps.StatefulSet, pod *v1.Pod) bool {
 	needsUpdate := false
 	// Sometimes the version and kind are not set {pod,set}.TypeMeta. These are necessary for the ownerRef.
 	// This is the case both in real clusters and the unittests.
@@ -240,7 +240,7 @@ func updateClaimOwnerRefForSetAndPod(claim *v1.PersistentVolumeClaim, set *apps.
 	const delete = apps.DeletePersistentVolumeClaimRetentionPolicyType
 	switch {
 	default:
-		klog.Errorf("Unknown policy %v, treating as Retain", set.Spec.PersistentVolumeClaimRetentionPolicy)
+		logger.Error(nil, "Unknown policy, treating as Retain", "policy", set.Spec.PersistentVolumeClaimRetentionPolicy)
 		fallthrough
 	case policy.WhenScaled == retain && policy.WhenDeleted == retain:
 		needsUpdate = removeOwnerRef(claim, set) || needsUpdate
@@ -608,7 +608,7 @@ func (ao ascendingOrdinal) Less(i, j int) bool {
 // Note that API validation has already guaranteed the maxUnavailable field to be >1 if it is an integer
 // or 0% < value <= 100% if it is a percentage, so we don't have to consider other cases.
 func getStatefulSetMaxUnavailable(maxUnavailable *intstr.IntOrString, replicaCount int) (int, error) {
-	maxUnavailableNum, err := intstr.GetScaledValueFromIntOrPercent(intstr.ValueOrDefault(maxUnavailable, intstr.FromInt(1)), replicaCount, false)
+	maxUnavailableNum, err := intstr.GetScaledValueFromIntOrPercent(intstr.ValueOrDefault(maxUnavailable, intstr.FromInt32(1)), replicaCount, false)
 	if err != nil {
 		return 0, err
 	}
