@@ -24,7 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/names"
-	"math"
+	"sort"
 )
 
 // FPGAScheduling plugin filters nodes that set node.Spec.Unschedulable=true unless
@@ -75,6 +75,11 @@ func (pl *FPGAScheduling) PreScore(
 	pod *v1.Pod,
 	nodes []*v1.Node,
 ) *framework.Status {
+	// TODO Make configurable
+	var usageWeight float64 = 1
+	var reconfigurationWeight float64 = 1
+	var fittingBitstreamWeight float64 = 1
+
 	if len(nodes) == 0 {
 		// No nodes to score.
 		return framework.NewStatus(framework.Skip)
@@ -91,7 +96,7 @@ func (pl *FPGAScheduling) PreScore(
 		recentReconfigurations int
 
 		// Don't know yet how to get this info
-		// hasFittingBitstream bool
+		hasFittingBitstreamNotImplementedYet bool
 	}
 
 	preScores := make([]nodePreScore, 0, len(nodes))
@@ -114,10 +119,62 @@ func (pl *FPGAScheduling) PreScore(
 		})
 	}
 
+	sortedByRecentUsage := make([]nodePreScore, len(preScores))
+	copy(sortedByRecentUsage, preScores)
+	sort.Slice(sortedByRecentUsage, func(i, j int) bool {
+		return sortedByRecentUsage[i].recentUsage < sortedByRecentUsage[j].recentUsage
+	})
+
+	sortedByRecentReconfigurations := make([]nodePreScore, len(preScores))
+	copy(sortedByRecentReconfigurations, preScores)
+	sort.Slice(sortedByRecentReconfigurations, func(i, j int) bool {
+		return sortedByRecentReconfigurations[i].recentReconfigurations < sortedByRecentReconfigurations[j].recentReconfigurations
+	})
+
+	getRelativeScore := func(sorted []nodePreScore, node string, weight float64) (float64, error) {
+		var position = -1
+		for i, n := range sorted {
+			if n.nodeName == node {
+				position = i
+				break
+			}
+		}
+		if position == -1 {
+			return 0, fmt.Errorf("node %q not found in sorted list", node)
+		}
+
+		var relativeScore = float64((len(sorted) - position) / len(sorted))
+
+		return relativeScore * weight, nil
+	}
+
 	state := &preScoreState{
 		fpgaScore: make(map[string]int64),
 	}
-	scores := make(map[string]int64)
+	for _, preScore := range preScores {
+		// perform score calculation
+		relativeUsageScore, err := getRelativeScore(sortedByRecentUsage, preScore.nodeName, usageWeight)
+		if err != nil {
+			return framework.NewStatus(framework.Error, fmt.Sprintf("failed to get relative usage score: %v", err))
+		}
+
+		relativeReconfigurationScore, err := getRelativeScore(sortedByRecentReconfigurations, preScore.nodeName, reconfigurationWeight)
+		if err != nil {
+			return framework.NewStatus(framework.Error, fmt.Sprintf("failed to get relative reconfiguration score: %v", err))
+		}
+
+		var hasFittingBitstream float64
+		if preScore.hasFittingBitstreamNotImplementedYet {
+			hasFittingBitstream = fittingBitstreamWeight
+		}
+
+		var score = float64(
+			(reconfigurationWeight*relativeReconfigurationScore+usageWeight*relativeUsageScore+fittingBitstreamWeight*hasFittingBitstream)/
+				(fittingBitstreamWeight+reconfigurationWeight+usageWeight)) * 100
+
+		// Limitation: Scheduler expects int64 score
+		state.fpgaScore[preScore.nodeName] = int64(score)
+	}
 
 	cycleState.Write(preScoreStateKey, state)
 	return nil
@@ -137,10 +194,7 @@ func getPreScoreState(cycleState *framework.CycleState) (*preScoreState, error) 
 }
 
 // Score invoked at the Score extension point.
-// The "score" returned in this function is the sum of weights got from cycleState which have its topologyKey matching with the node's labels.
-// it is normalized later.
-// Note: the returned "score" is positive for pod-affinity, and negative for pod-antiaffinity.
-func (pl *InterPodAffinity) Score(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod, nodeName string) (int64, *framework.Status) {
+func (pl *FPGAScheduling) Score(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod, nodeName string) (int64, *framework.Status) {
 	nodeInfo, err := pl.sharedLister.NodeInfos().Get(nodeName)
 	if err != nil {
 		return 0, framework.AsStatus(fmt.Errorf("failed to get node %q from Snapshot: %w", nodeName, err))
@@ -151,47 +205,21 @@ func (pl *InterPodAffinity) Score(ctx context.Context, cycleState *framework.Cyc
 	if err != nil {
 		return 0, framework.AsStatus(err)
 	}
-	var score int64
-	for tpKey, tpValues := range s.topologyScore {
-		if v, exist := node.Labels[tpKey]; exist {
-			score += tpValues[v]
-		}
-	}
 
-	return score, nil
+	return s.fpgaScore[node.Name], nil
 }
 
 // NormalizeScore normalizes the score for each filteredNode.
-func (pl *InterPodAffinity) NormalizeScore(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod, scores framework.NodeScoreList) *framework.Status {
-	s, err := getPreScoreState(cycleState)
-	if err != nil {
-		return framework.AsStatus(err)
-	}
-	if len(s.topologyScore) == 0 {
-		return nil
-	}
-
-	var minCount int64 = math.MaxInt64
-	var maxCount int64 = math.MinInt64
-	for i := range scores {
-		score := scores[i].Score
-		if score > maxCount {
-			maxCount = score
-		}
-		if score < minCount {
-			minCount = score
-		}
-	}
-
-	maxMinDiff := maxCount - minCount
-	for i := range scores {
-		fScore := float64(0)
-		if maxMinDiff > 0 {
-			fScore = float64(framework.MaxNodeScore) * (float64(scores[i].Score-minCount) / float64(maxMinDiff))
-		}
-
-		scores[i].Score = int64(fScore)
-	}
+func (pl *FPGAScheduling) NormalizeScore(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod, scores framework.NodeScoreList) *framework.Status {
+	// No need for normalizing here
+	// s, err := getPreScoreState(cycleState)
+	// if err != nil {
+	//	return framework.AsStatus(err)
+	// }
+	//for i := range scores {
+	//	fScore := float64(0)
+	//	scores[i].Score = int64(fScore)
+	//}
 
 	return nil
 }

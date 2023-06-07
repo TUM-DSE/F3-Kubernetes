@@ -17,15 +17,13 @@ limitations under the License.
 package fpgascheduling
 
 import (
-	"context"
-	"reflect"
-	"testing"
-
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
+	"reflect"
+	"testing"
 )
 
-func TestNodeUnschedulable(t *testing.T) {
+func TestFPGAScheduling(t *testing.T) {
 	testCases := []struct {
 		name       string
 		pod        *v1.Pod
