@@ -41,4 +41,5 @@ const (
 	VolumeBinding                   = "VolumeBinding"
 	VolumeRestrictions              = "VolumeRestrictions"
 	VolumeZone                      = "VolumeZone"
+	FPGAScheduling                  = "FPGAScheduling"
 )
