@@ -95,6 +95,7 @@ var args = []string{
 	"--concurrent-gc-syncs=30",
 	"--concurrent-namespace-syncs=20",
 	"--concurrent-job-syncs=10",
+	"--concurrent-cron-job-syncs=10",
 	"--concurrent-replicaset-syncs=10",
 	"--concurrent-resource-quota-syncs=10",
 	"--concurrent-service-syncs=2",
@@ -326,7 +327,7 @@ func TestAddFlags(t *testing.T) {
 		},
 		CronJobController: &CronJobControllerOptions{
 			&cronjobconfig.CronJobControllerConfiguration{
-				ConcurrentCronJobSyncs: 5,
+				ConcurrentCronJobSyncs: 10,
 			},
 		},
 		NamespaceController: &NamespaceControllerOptions{
@@ -580,7 +581,7 @@ func TestApplyTo(t *testing.T) {
 				ConcurrentJobSyncs: 10,
 			},
 			CronJobController: cronjobconfig.CronJobControllerConfiguration{
-				ConcurrentCronJobSyncs: 5,
+				ConcurrentCronJobSyncs: 10,
 			},
 			NamespaceController: namespaceconfig.NamespaceControllerConfiguration{
 				NamespaceSyncPeriod:      metav1.Duration{Duration: 10 * time.Minute},
@@ -1053,30 +1054,6 @@ func TestValidateControllersOptions(t *testing.T) {
 			}).Validate,
 		},
 		{
-			name:                   "PersistentVolumeBinderControllerOptions bad cidr deny list",
-			expectErrors:           true,
-			expectedErrorSubString: "bad --volume-host-ip-denylist/--volume-host-allow-local-loopback invalid CIDR",
-			validate: (&PersistentVolumeBinderControllerOptions{
-				&persistentvolumeconfig.PersistentVolumeBinderControllerConfiguration{
-					PVClaimBinderSyncPeriod: metav1.Duration{Duration: 30 * time.Second},
-					VolumeConfiguration: persistentvolumeconfig.VolumeConfiguration{
-						EnableDynamicProvisioning:  false,
-						EnableHostPathProvisioning: true,
-						FlexVolumePluginDir:        "/flex-volume-plugin",
-						PersistentVolumeRecyclerConfiguration: persistentvolumeconfig.PersistentVolumeRecyclerConfiguration{
-							MaximumRetry:             3,
-							MinimumTimeoutNFS:        200,
-							IncrementTimeoutNFS:      45,
-							MinimumTimeoutHostPath:   45,
-							IncrementTimeoutHostPath: 45,
-						},
-					},
-					VolumeHostCIDRDenylist:       []string{"127.0.0.1"},
-					VolumeHostAllowLocalLoopback: false,
-				},
-			}).Validate,
-		},
-		{
 			name:                   "StatefulSetControllerOptions ConcurrentStatefulSetSyncs equal 0",
 			expectErrors:           true,
 			expectedErrorSubString: "concurrent-statefulset-syncs must be greater than 0",
@@ -1096,13 +1073,23 @@ func TestValidateControllersOptions(t *testing.T) {
 				},
 			}).Validate,
 		},
+		{
+			name:                   "CronJobControllerOptions ConcurrentCronJobSyncs equal 0",
+			expectErrors:           true,
+			expectedErrorSubString: "concurrent-cron-job-syncs must be greater than 0",
+			validate: (&CronJobControllerOptions{
+				&cronjobconfig.CronJobControllerConfiguration{
+					ConcurrentCronJobSyncs: 0,
+				},
+			}).Validate,
+		},
 		/* empty errs */
 		{
 			name:         "CronJobControllerOptions",
 			expectErrors: false,
 			validate: (&CronJobControllerOptions{
 				&cronjobconfig.CronJobControllerConfiguration{
-					ConcurrentCronJobSyncs: 5,
+					ConcurrentCronJobSyncs: 10,
 				},
 			}).Validate,
 		},
