@@ -42,14 +42,6 @@ const Name = names.FPGAScheduling
 
 const preScoreStateKey = "PreScore" + Name
 
-// EventsToRegister returns the possible events that may make a Pod
-// failed by this plugin schedulable.
-func (pl *FPGAScheduling) EventsToRegister() []framework.ClusterEvent {
-	return []framework.ClusterEvent{
-		{Resource: framework.Node, ActionType: framework.Add | framework.Update},
-	}
-}
-
 // Name returns name of the plugin. It is used in logs, etc.
 func (pl *FPGAScheduling) Name() string {
 	return Name
