@@ -34,8 +34,36 @@ type FPGAScheduling struct {
 	args config.FPGASchedulingArgs
 }
 
+func assertVendorLabel(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodeInfo *framework.NodeInfo) *framework.Status {
+	vendorLabel, hasVendorLabel := pod.Labels["fpga-scheduling.io/fpga-vendor"]
+	if !hasVendorLabel {
+		return nil
+	}
+
+	nodeVendorLabel, nodeHasVendorLabel := nodeInfo.Node().Annotations["fpga-scheduling.io/fpga-vendor"]
+	if !nodeHasVendorLabel {
+		return nil
+	}
+
+	if vendorLabel != nodeVendorLabel {
+		return framework.NewStatus(framework.UnschedulableAndUnresolvable, "Pod requires a different FPGA vendor than the node")
+	}
+
+	return nil
+}
+
+func (pl *FPGAScheduling) Filter(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodeInfo *framework.NodeInfo) *framework.Status {
+	status := assertVendorLabel(ctx, state, pod, nodeInfo)
+	if status != nil {
+		return status
+	}
+
+	return framework.NewStatus(framework.Success, "")
+}
+
 var _ framework.PreScorePlugin = &FPGAScheduling{}
 var _ framework.ScorePlugin = &FPGAScheduling{}
+var _ framework.FilterPlugin = &FPGAScheduling{}
 
 // Name is the name of the plugin used in the plugin registry and configurations.
 const Name = names.FPGAScheduling
