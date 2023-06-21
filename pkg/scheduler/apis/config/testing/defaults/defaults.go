@@ -196,9 +196,9 @@ var PluginConfigsV1beta3 = []config.PluginConfig{
 	{
 		Name: "FPGAScheduling",
 		Args: &config.FPGASchedulingArgs{
-			RecentUsageWeight:            1,
-			HasFittingBitstreamWeight:    1,
-			RecentReconfigurationsWeight: 1,
+			RecentUsageTimeWeight:           1,
+			BitstreamLocalityWeight:         1,
+			RecentReconfigurationTimeWeight: 1,
 		},
 	},
 	{
@@ -390,9 +390,9 @@ var PluginConfigsV1 = []config.PluginConfig{
 	{
 		Name: "FPGAScheduling",
 		Args: &config.FPGASchedulingArgs{
-			RecentUsageWeight:            1,
-			RecentReconfigurationsWeight: 1,
-			HasFittingBitstreamWeight:    1,
+			RecentUsageTimeWeight:           1,
+			RecentReconfigurationTimeWeight: 1,
+			BitstreamLocalityWeight:         1,
 		},
 	},
 	{

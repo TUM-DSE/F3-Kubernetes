@@ -64,9 +64,9 @@ type InterPodAffinityArgs struct {
 type FPGASchedulingArgs struct {
 	metav1.TypeMeta
 
-	RecentUsageWeight            float64
-	RecentReconfigurationsWeight float64
-	HasFittingBitstreamWeight    float64
+	RecentUsageTimeWeight           float64
+	RecentReconfigurationTimeWeight float64
+	BitstreamLocalityWeight         float64
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

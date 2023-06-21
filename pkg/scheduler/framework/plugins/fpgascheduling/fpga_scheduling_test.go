@@ -35,10 +35,10 @@ var namespaces = []runtime.Object{
 	&v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "primary"}},
 }
 
-func createFPGAStateAnnotation(recentUsage float64, recentReconfigurations int) map[string]string {
+func createFPGAStateAnnotation(recentUsage float64, recentReconfigurationTime float64) map[string]string {
 	state := FPGANodeState{
-		RecentUsage:            recentUsage,
-		RecentReconfigurations: recentReconfigurations,
+		RecentUsage:               recentUsage,
+		RecentReconfigurationTime: recentReconfigurationTime,
 	}
 
 	serialized, err := json.Marshal(state)
@@ -47,7 +47,7 @@ func createFPGAStateAnnotation(recentUsage float64, recentReconfigurations int) 
 	}
 
 	return map[string]string{
-		"fpga-state": string(serialized),
+		"fpga-scheduling.io/fpga-state": string(serialized),
 	}
 }
 
@@ -61,7 +61,7 @@ func TestFPGAScheduling(t *testing.T) {
 
 		recentUsageWeight            float64
 		recentReconfigurationsWeight float64
-		hasFittingBitstreamWeight    float64
+		bitstreamLocalityWeight      float64
 
 		wantStatus *framework.Status
 	}{
@@ -70,7 +70,7 @@ func TestFPGAScheduling(t *testing.T) {
 			pod:  &v1.Pod{Spec: v1.PodSpec{NodeName: ""}, ObjectMeta: metav1.ObjectMeta{}},
 
 			recentUsageWeight:            1,
-			hasFittingBitstreamWeight:    0,
+			bitstreamLocalityWeight:      0,
 			recentReconfigurationsWeight: 1,
 
 			nodes: []*v1.Node{
@@ -85,7 +85,7 @@ func TestFPGAScheduling(t *testing.T) {
 			pod:  &v1.Pod{Spec: v1.PodSpec{NodeName: ""}, ObjectMeta: metav1.ObjectMeta{}},
 
 			recentUsageWeight:            1,
-			hasFittingBitstreamWeight:    0,
+			bitstreamLocalityWeight:      0,
 			recentReconfigurationsWeight: 1,
 
 			nodes: []*v1.Node{
@@ -104,9 +104,9 @@ func TestFPGAScheduling(t *testing.T) {
 			state := framework.NewCycleState()
 
 			p := plugintesting.SetupPluginWithInformers(ctx, t, New, &config.FPGASchedulingArgs{
-				RecentUsageWeight:            test.recentUsageWeight,
-				RecentReconfigurationsWeight: test.recentReconfigurationsWeight,
-				HasFittingBitstreamWeight:    test.hasFittingBitstreamWeight,
+				RecentUsageTimeWeight:           test.recentUsageWeight,
+				RecentReconfigurationTimeWeight: test.recentReconfigurationsWeight,
+				BitstreamLocalityWeight:         test.bitstreamLocalityWeight,
 			}, cache.NewSnapshot(test.pods, test.nodes), namespaces)
 
 			status := p.(framework.PreScorePlugin).PreScore(ctx, state, test.pod, test.nodes)

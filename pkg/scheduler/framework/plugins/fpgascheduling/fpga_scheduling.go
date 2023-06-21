@@ -34,19 +34,29 @@ type FPGAScheduling struct {
 	args config.FPGASchedulingArgs
 }
 
-func assertVendorLabel(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodeInfo *framework.NodeInfo) *framework.Status {
-	vendorLabel, hasVendorLabel := pod.Labels["fpga-scheduling.io/fpga-vendor"]
+func assertVendorLabel(
+	ctx context.Context,
+	state *framework.CycleState,
+	pod *v1.Pod,
+	nodeInfo *framework.NodeInfo,
+) *framework.Status {
+	vendorLabel, hasVendorLabel :=
+		pod.Labels["fpga-scheduling.io/fpga-vendor"]
 	if !hasVendorLabel {
 		return nil
 	}
 
-	nodeVendorLabel, nodeHasVendorLabel := nodeInfo.Node().Annotations["fpga-scheduling.io/fpga-vendor"]
+	nodeVendorLabel, nodeHasVendorLabel :=
+		nodeInfo.Node().Labels["fpga-scheduling.io/fpga-vendor"]
 	if !nodeHasVendorLabel {
 		return nil
 	}
 
 	if vendorLabel != nodeVendorLabel {
-		return framework.NewStatus(framework.UnschedulableAndUnresolvable, "Pod requires a different FPGA vendor than the node")
+		return framework.NewStatus(
+			framework.UnschedulableAndUnresolvable,
+			"Pod requires a different FPGA vendor than the node",
+		)
 	}
 
 	return nil
@@ -188,7 +198,7 @@ func (pl *FPGAScheduling) PreScore(
 		if err != nil {
 			return framework.NewStatus(framework.Error, fmt.Sprintf("failed to get recent usage position: %v", err))
 		}
-		relativeUsageScore, err := getRelativeScore(len(sortedByRecentUsage), recentUsagePosition, pl.args.RecentUsageWeight)
+		relativeUsageScore, err := getRelativeScore(len(sortedByRecentUsage), recentUsagePosition, pl.args.RecentUsageTimeWeight)
 		if err != nil {
 			return framework.NewStatus(framework.Error, fmt.Sprintf("failed to get relative usage score: %v", err))
 		}
@@ -197,18 +207,18 @@ func (pl *FPGAScheduling) PreScore(
 		if err != nil {
 			return framework.NewStatus(framework.Error, fmt.Sprintf("failed to get recent reconfigurations position: %v", err))
 		}
-		relativeReconfigurationScore, err := getRelativeScore(len(sortedByRecentReconfigurations), recentReconfigurationsPosition, pl.args.RecentReconfigurationsWeight)
+		relativeReconfigurationScore, err := getRelativeScore(len(sortedByRecentReconfigurations), recentReconfigurationsPosition, pl.args.RecentReconfigurationTimeWeight)
 		if err != nil {
 			return framework.NewStatus(framework.Error, fmt.Sprintf("failed to get relative reconfiguration score: %v", err))
 		}
 
 		var hasFittingBitstream float64
 		if preScore.hasFittingBitstream {
-			hasFittingBitstream = pl.args.HasFittingBitstreamWeight
+			hasFittingBitstream = pl.args.BitstreamLocalityWeight
 		}
 
 		var score = ((relativeReconfigurationScore + relativeUsageScore + hasFittingBitstream) /
-			(pl.args.RecentUsageWeight + pl.args.RecentReconfigurationsWeight + pl.args.HasFittingBitstreamWeight)) * 100
+			(pl.args.RecentUsageTimeWeight + pl.args.RecentReconfigurationTimeWeight + pl.args.BitstreamLocalityWeight)) * 100
 
 		// Limitation: Scheduler expects int64 score
 		state.fpgaScore[preScore.nodeName] = int64(score)
