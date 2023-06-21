@@ -49,8 +49,10 @@ func (pl *FPGAScheduling) Name() string {
 
 // Subset of struct created in metrics-collector
 type FPGANodeState struct {
-	RecentUsage            float64 `json:"recentUsage"`
-	RecentReconfigurations int     `json:"recentReconfigurations"`
+	// exported (and kube-accessible fields)
+	RecentUsage                float64             `json:"recentUsage"`
+	RecentReconfigurationTime  float64             `json:"recentReconfigurationTime"`
+	RecentBitstreamIdentifiers map[string]struct{} `json:"recentBitstreamIdentifiers"`
 }
 
 type preScoreState struct {
@@ -76,16 +78,14 @@ func (pl *FPGAScheduling) PreScore(
 	type nodePreScore struct {
 		nodeName string
 
-		recentUsage            float64
-		recentReconfigurations int
-
-		// Don't know yet how to get this info
-		hasFittingBitstreamNotImplementedYet bool
+		recentUsage               float64
+		recentReconfigurationTime float64
+		hasFittingBitstream       bool
 	}
 
 	preScores := make([]nodePreScore, 0, len(nodes))
 	for _, node := range nodes {
-		serializedFPGAState, has := node.Annotations["fpga-state"]
+		serializedFPGAState, has := node.Annotations["fpga-scheduling.io/fpga-state"]
 		if !has {
 			continue
 		}
@@ -93,13 +93,24 @@ func (pl *FPGAScheduling) PreScore(
 		fpgaState := FPGANodeState{}
 		err := json.Unmarshal([]byte(serializedFPGAState), &fpgaState)
 		if err != nil {
-			return framework.NewStatus(framework.Error, fmt.Sprintf("failed to parse fpga-state annotation: %v", err))
+			return framework.NewStatus(framework.Error, fmt.Sprintf("failed to parse fpga-scheduling.io/fpga-state annotation: %v", err))
+		}
+
+		// Don't require every application to set bitstream identifier, so we won't lower the node score if it's not set.
+		hasFittingBitstream := true
+		bitstreamIdentifierLabel, has := pod.Labels["fpga-scheduling.io/bitstream-identifier"]
+		if has {
+			_, has = fpgaState.RecentBitstreamIdentifiers[bitstreamIdentifierLabel]
+			if !has {
+				hasFittingBitstream = false
+			}
 		}
 
 		preScores = append(preScores, nodePreScore{
-			nodeName:               node.Name,
-			recentReconfigurations: fpgaState.RecentReconfigurations,
-			recentUsage:            fpgaState.RecentUsage,
+			nodeName:                  node.Name,
+			recentReconfigurationTime: fpgaState.RecentReconfigurationTime,
+			recentUsage:               fpgaState.RecentUsage,
+			hasFittingBitstream:       hasFittingBitstream,
 		})
 	}
 
@@ -112,7 +123,7 @@ func (pl *FPGAScheduling) PreScore(
 	sortedByRecentReconfigurations := make([]nodePreScore, len(preScores))
 	copy(sortedByRecentReconfigurations, preScores)
 	sort.Slice(sortedByRecentReconfigurations, func(i, j int) bool {
-		return sortedByRecentReconfigurations[i].recentReconfigurations < sortedByRecentReconfigurations[j].recentReconfigurations
+		return sortedByRecentReconfigurations[i].recentReconfigurationTime < sortedByRecentReconfigurations[j].recentReconfigurationTime
 	})
 
 	getRecentUsagePosition := func(sorted []nodePreScore, own nodePreScore) (int, error) {
@@ -128,7 +139,7 @@ func (pl *FPGAScheduling) PreScore(
 
 	getRecentReconfigurationsPosition := func(sorted []nodePreScore, own nodePreScore) (int, error) {
 		for i, n := range sorted {
-			if n.recentReconfigurations == own.recentReconfigurations {
+			if n.recentReconfigurationTime == own.recentReconfigurationTime {
 				return i, nil
 			}
 		}
@@ -164,7 +175,7 @@ func (pl *FPGAScheduling) PreScore(
 		}
 
 		var hasFittingBitstream float64
-		if preScore.hasFittingBitstreamNotImplementedYet {
+		if preScore.hasFittingBitstream {
 			hasFittingBitstream = pl.args.HasFittingBitstreamWeight
 		}
 
