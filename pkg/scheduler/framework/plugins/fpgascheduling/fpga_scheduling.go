@@ -14,6 +14,38 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+/*
+
+How to run this locally (Docker Desktop):
+
+- Run docker build -t registry.k8s.io/kube-scheduler:v1.25.9 -f Dockerfile-scheduler .
+- Start integrated Kubernetes cluster in Docker Desktop
+
+To update the image in the cluster:
+- Find scheduler container ID with docker container ls and copy it, also copy image ID used by the container
+- Run docker build -t registry.k8s.io/kube-scheduler:v1.25.9 -f Dockerfile-scheduler .
+- Delete old container and remove image (docker container rm -f <container ID> && docker image rm <image ID>)
+- Scheduler will be automatically restarted with the new image
+
+---
+
+How to use this in an existing production cluster or Minikube:
+- Build the image and push it to a registry
+- Update the image name provided in the scheduler yaml template in /etc/kubernetes/manifests/kube-scheduler.yaml
+- Make sure no other scheduler image is downloaded (docker image ls | grep kube-scheduler)
+- Delete the scheduler (kubectl delete pod kube-scheduler -n kube-system)
+- Scheduler will be automatically restarted with the new image
+- Check that the scheduler is running (kubectl get pods -n kube-system)
+
+---
+
+How to use this with kubeadm:
+- Build the image and push it to a registry
+- Build other images (kube-apiserver, kube-controller-manager, kube-proxy, kubelet) and push them to a registry
+- Set your registry as the preferred image registry in kubeadm: https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-init/#custom-images
+- Running kubeadm init will the images from your custom registry
+*/
+
 package fpgascheduling
 
 import (
@@ -34,6 +66,11 @@ type FPGAScheduling struct {
 	args config.FPGASchedulingArgs
 }
 
+const VendorLabel = "fpga-scheduling.io/fpga-vendor"
+const StateLabel = "fpga-scheduling.io/fpga-state"
+const EnabledLabel = "fpga-scheduling.io/fpga-enabled"
+const BitstreamIdentifierLabel = "fpga-scheduling.io/bitstream-identifier"
+
 func assertVendorLabel(
 	ctx context.Context,
 	state *framework.CycleState,
@@ -41,13 +78,13 @@ func assertVendorLabel(
 	nodeInfo *framework.NodeInfo,
 ) *framework.Status {
 	vendorLabel, hasVendorLabel :=
-		pod.Labels["fpga-scheduling.io/fpga-vendor"]
+		pod.Labels[""]
 	if !hasVendorLabel {
 		return nil
 	}
 
 	nodeVendorLabel, nodeHasVendorLabel :=
-		nodeInfo.Node().Labels["fpga-scheduling.io/fpga-vendor"]
+		nodeInfo.Node().Labels[VendorLabel]
 	if !nodeHasVendorLabel {
 		return nil
 	}
@@ -87,6 +124,8 @@ func (pl *FPGAScheduling) Name() string {
 
 // Subset of struct created in metrics-collector
 type FPGANodeState struct {
+	Version int
+
 	// exported (and kube-accessible fields)
 	RecentUsage                float64             `json:"recentUsage"`
 	RecentReconfigurationTime  float64             `json:"recentReconfigurationTime"`
@@ -123,7 +162,7 @@ func (pl *FPGAScheduling) PreScore(
 
 	preScores := make([]nodePreScore, 0, len(nodes))
 	for _, node := range nodes {
-		serializedFPGAState, has := node.Annotations["fpga-scheduling.io/fpga-state"]
+		serializedFPGAState, has := node.Annotations[StateLabel]
 		if !has {
 			continue
 		}
@@ -131,12 +170,12 @@ func (pl *FPGAScheduling) PreScore(
 		fpgaState := FPGANodeState{}
 		err := json.Unmarshal([]byte(serializedFPGAState), &fpgaState)
 		if err != nil {
-			return framework.NewStatus(framework.Error, fmt.Sprintf("failed to parse fpga-scheduling.io/fpga-state annotation: %v", err))
+			return framework.NewStatus(framework.Error, fmt.Sprintf("failed to parse %s annotation: %v", StateLabel, err))
 		}
 
 		// Don't require every application to set bitstream identifier, so we won't lower the node score if it's not set.
 		hasFittingBitstream := true
-		bitstreamIdentifierLabel, has := pod.Labels["fpga-scheduling.io/bitstream-identifier"]
+		bitstreamIdentifierLabel, has := pod.Labels[BitstreamIdentifierLabel]
 		if has {
 			_, has = fpgaState.RecentBitstreamIdentifiers[bitstreamIdentifierLabel]
 			if !has {
@@ -243,6 +282,11 @@ func getPreScoreState(cycleState *framework.CycleState) (*preScoreState, error) 
 
 // Score invoked at the Score extension point.
 func (pl *FPGAScheduling) Score(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod, nodeName string) (int64, *framework.Status) {
+	// Skip workloads not interested in FPGA scheduling
+	if pod.Labels[EnabledLabel] != "true" {
+		return 100, nil
+	}
+
 	s, err := getPreScoreState(cycleState)
 	if err != nil {
 		return 0, framework.AsStatus(err)

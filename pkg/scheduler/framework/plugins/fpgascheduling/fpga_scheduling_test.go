@@ -67,7 +67,9 @@ func TestFPGAScheduling(t *testing.T) {
 	}{
 		{
 			name: "relative scores",
-			pod:  &v1.Pod{Spec: v1.PodSpec{NodeName: ""}, ObjectMeta: metav1.ObjectMeta{}},
+			pod: &v1.Pod{Spec: v1.PodSpec{NodeName: ""}, ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{
+				EnabledLabel: "true",
+			}}},
 
 			recentUsageWeight:            1,
 			bitstreamLocalityWeight:      0,
@@ -82,7 +84,11 @@ func TestFPGAScheduling(t *testing.T) {
 		},
 		{
 			name: "equal metrics equal scores",
-			pod:  &v1.Pod{Spec: v1.PodSpec{NodeName: ""}, ObjectMeta: metav1.ObjectMeta{}},
+			pod: &v1.Pod{Spec: v1.PodSpec{NodeName: ""}, ObjectMeta: metav1.ObjectMeta{
+				Labels: map[string]string{
+					EnabledLabel: "true",
+				},
+			}},
 
 			recentUsageWeight:            1,
 			bitstreamLocalityWeight:      0,
