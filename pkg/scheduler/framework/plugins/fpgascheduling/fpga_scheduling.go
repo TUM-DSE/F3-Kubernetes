@@ -155,6 +155,8 @@ func (pl *FPGAScheduling) PreScore(
 	pod *v1.Pod,
 	nodes []*v1.Node,
 ) *framework.Status {
+	fmt.Println("Running FPGAScheduling PreScore")
+
 	if len(nodes) == 0 {
 		// No nodes to score.
 		return framework.NewStatus(framework.Skip)
