@@ -395,6 +395,9 @@ func (sched *Scheduler) Run(ctx context.Context) {
 	logger := klog.FromContext(ctx)
 	sched.SchedulingQueue.Run(logger)
 
+	// TODO Temporary log
+	fmt.Println("Customized SchedulingQueue is running")
+
 	// We need to start scheduleOne loop in a dedicated goroutine,
 	// because scheduleOne function hangs on getting the next item
 	// from the SchedulingQueue.

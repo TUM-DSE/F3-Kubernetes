@@ -96,6 +96,7 @@ var ExpandedPluginsV1beta3 = &config.Plugins{
 			{Name: names.VolumeZone},
 			{Name: names.PodTopologySpread},
 			{Name: names.InterPodAffinity},
+			{Name: names.FPGAScheduling},
 		},
 	},
 	PostFilter: config.PluginSet{
@@ -290,6 +291,7 @@ var ExpandedPluginsV1 = &config.Plugins{
 			{Name: names.VolumeZone},
 			{Name: names.PodTopologySpread},
 			{Name: names.InterPodAffinity},
+			{Name: names.FPGAScheduling},
 		},
 	},
 	PostFilter: config.PluginSet{

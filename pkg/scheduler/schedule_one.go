@@ -83,7 +83,8 @@ func (sched *Scheduler) scheduleOne(ctx context.Context) {
 		return
 	}
 
-	logger.V(3).Info("Attempting to schedule pod", "pod", klog.KObj(pod))
+	// TODO Temporarily increased
+	fmt.Println("Attempting to schedule pod", "pod", klog.KObj(pod))
 
 	// Synchronously attempt to find a fit for the pod.
 	start := time.Now()
@@ -326,6 +327,7 @@ func (sched *Scheduler) handleBindingCycleError(
 }
 
 func (sched *Scheduler) frameworkForPod(pod *v1.Pod) (framework.Framework, error) {
+	fmt.Println("Finding scheduler for pod", pod.Name, pod.Spec.SchedulerName)
 	fwk, ok := sched.Profiles[pod.Spec.SchedulerName]
 	if !ok {
 		return nil, fmt.Errorf("profile not found for scheduler name %q", pod.Spec.SchedulerName)
@@ -374,6 +376,9 @@ func (sched *Scheduler) schedulePod(ctx context.Context, fwk framework.Framework
 		return result, err
 	}
 	trace.Step("Computing predicates done")
+
+	// TODO Temporary log
+	fmt.Println("Feasible nodes after predicates", "pod", klog.KObj(pod), "feasibleNodes", feasibleNodes)
 
 	if len(feasibleNodes) == 0 {
 		return result, &framework.FitError{

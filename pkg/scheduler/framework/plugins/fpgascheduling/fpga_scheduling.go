@@ -29,13 +29,19 @@ To update the image in the cluster:
 
 ---
 
-How to use this in an existing production cluster or Minikube:
+How to use this in an existing production cluster:
 - Build the image and push it to a registry
 - Update the image name provided in the scheduler yaml template in /etc/kubernetes/manifests/kube-scheduler.yaml
 - Make sure no other scheduler image is downloaded (docker image ls | grep kube-scheduler)
 - Delete the scheduler (kubectl delete pod kube-scheduler -n kube-system)
 - Scheduler will be automatically restarted with the new image
 - Check that the scheduler is running (kubectl get pods -n kube-system)
+
+How to use this with minikube:
+- run eval $(minikube docker-env)
+- check out the tag minikube uses for the kube-scheduler image with docker image ls
+- Build the image with docker build -t registry.k8s.io/kube-scheduler:<tag> -f Dockerfile-scheduler .
+- Delete the kube-scheduler pod (kubectl delete pod kube-scheduler -n kube-system)
 
 ---
 

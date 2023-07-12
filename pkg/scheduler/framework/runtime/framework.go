@@ -317,6 +317,14 @@ func NewFramework(ctx context.Context, r Registry, profile *config.KubeScheduler
 			return nil, err
 		}
 	}
+	// TODO Temporary logs
+	fmt.Printf("plugins initialized from profile %q\n", f.profileName)
+	for i, plugin := range f.filterPlugins {
+		fmt.Printf("filter plugin %d: %s\n", i, plugin.Name())
+	}
+	for i, plugin := range f.preScorePlugins {
+		fmt.Printf("pre-score plugin %d: %s\n", i, plugin.Name())
+	}
 
 	// initialize multiPoint plugins to their expanded extension points
 	if len(profile.Plugins.MultiPoint.Enabled) > 0 {

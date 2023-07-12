@@ -43,6 +43,7 @@ func getDefaultPlugins() *v1.Plugins {
 				{Name: names.GCEPDLimits},
 				{Name: names.NodeVolumeLimits},
 				{Name: names.AzureDiskLimits},
+				{Name: names.FPGAScheduling, Weight: pointer.Int32(1)},
 				{Name: names.VolumeBinding},
 				{Name: names.VolumeZone},
 				{Name: names.PodTopologySpread, Weight: pointer.Int32(2)},
