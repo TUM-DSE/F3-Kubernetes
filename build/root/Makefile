@@ -529,4 +529,4 @@ help:
 endif
 
 scheduler:
-	docker build -t registry.k8s.io/kube-scheduler:v1.25.9 -f Dockerfile-scheduler .
+	docker build -t registry.k8s.io/kube-scheduler:tmp -f Dockerfile-scheduler . && minikube image load --daemon --overwrite registry.k8s.io/kube-scheduler:tmp

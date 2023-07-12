@@ -42,6 +42,7 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&InterPodAffinityArgs{},
 		&NodeResourcesBalancedAllocationArgs{},
 		&NodeResourcesFitArgs{},
+		&FPGASchedulingArgs{},
 		&PodTopologySpreadArgs{},
 		&VolumeBindingArgs{},
 		&NodeAffinityArgs{},

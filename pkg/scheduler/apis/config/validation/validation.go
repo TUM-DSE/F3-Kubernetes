@@ -197,6 +197,7 @@ func validatePluginConfig(path *field.Path, apiVersion string, profile *config.K
 		"NodeResourcesFitArgs":            ValidateNodeResourcesFitArgs,
 		"PodTopologySpread":               ValidatePodTopologySpreadArgs,
 		"VolumeBinding":                   ValidateVolumeBindingArgs,
+		"FPGASchedulingArgs":              ValidateFPGASchedulingArgs,
 	}
 
 	if profile.Plugins != nil {
