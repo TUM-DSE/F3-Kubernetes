@@ -130,14 +130,6 @@ const (
 	// Enables the Azure File in-tree driver to Azure File Driver migration feature.
 	CSIMigrationAzureFile featuregate.Feature = "CSIMigrationAzureFile"
 
-	// owner: @davidz627
-	// alpha: v1.14
-	// beta: v1.17
-	// GA: 1.25
-	//
-	// Enables the GCE PD in-tree driver to GCE CSI Driver migration feature.
-	CSIMigrationGCE featuregate.Feature = "CSIMigrationGCE"
-
 	// owner: @mfordjody
 	// alpha: v1.26
 	//
@@ -194,6 +186,11 @@ const (
 	//
 	// Normalize HttpGet URL and Header passing for lifecycle handlers with probers.
 	ConsistentHTTPGetHandlers featuregate.Feature = "ConsistentHTTPGetHandlers"
+
+	// owner: @helayoty
+	// beta: v1.28
+	// Set the scheduled time as an annotation in the job.
+	CronJobsScheduledAnnotation featuregate.Feature = "CronJobsScheduledAnnotation"
 
 	// owner: @deejross, @soltysh
 	// kep: https://kep.k8s.io/3140
@@ -374,15 +371,6 @@ const (
 	// Causes kubelet to no longer create legacy IPTables rules
 	IPTablesOwnershipCleanup featuregate.Feature = "IPTablesOwnershipCleanup"
 
-	// owner: @mimowo
-	// kep: https://kep.k8s.io/3329
-	// alpha: v1.25
-	// beta: v1.26
-	//
-	// Allow users to specify handling of pod failures based on container exit codes
-	// and pod conditions.
-	JobPodFailurePolicy featuregate.Feature = "JobPodFailurePolicy"
-
 	// owner: @ahg
 	// beta: v1.23
 	// stable: v1.27
@@ -391,6 +379,15 @@ const (
 	// node affinity, selector and tolerations. This is allowed only for suspended jobs
 	// that have never been unsuspended before.
 	JobMutableNodeSchedulingDirectives featuregate.Feature = "JobMutableNodeSchedulingDirectives"
+
+	// owner: @mimowo
+	// kep: https://kep.k8s.io/3329
+	// alpha: v1.25
+	// beta: v1.26
+	//
+	// Allow users to specify handling of pod failures based on container exit codes
+	// and pod conditions.
+	JobPodFailurePolicy featuregate.Feature = "JobPodFailurePolicy"
 
 	// owner: @alculquicondor
 	// alpha: v1.23
@@ -668,6 +665,8 @@ const (
 	// owner: @RomanBednar
 	// kep: https://kep.k8s.io/3333
 	// alpha: v1.25
+	// beta: 1.26
+	// stable: v1.28
 	//
 	// Allow assigning StorageClass to unbound PVCs retroactively
 	RetroactiveDefaultStorageClass featuregate.Feature = "RetroactiveDefaultStorageClass"
@@ -714,6 +713,15 @@ const (
 	//
 	// Subdivide the NodePort range for dynamic and static port allocation.
 	ServiceNodePortStaticSubrange featuregate.Feature = "ServiceNodePortStaticSubrange"
+
+	// owner: @gjkim42 @SergeyKanzhelev @matthyx @tzneal
+	// kep: http://kep.k8s.io/753
+	// alpha: v1.28
+	//
+	// Introduces sidecar containers, a new type of init container that starts
+	// before other containers but remains running for the full duration of the
+	// pod's lifecycle and will not block pod termination.
+	SidecarContainers featuregate.Feature = "SidecarContainers"
 
 	// owner: @derekwaynecarr
 	// alpha: v1.20
@@ -793,7 +801,7 @@ const (
 	// alpha: v1.25
 	//
 	// Enables user namespace support for stateless pods.
-	UserNamespacesStatelessPodsSupport featuregate.Feature = "UserNamespacesStatelessPodsSupport"
+	UserNamespacesSupport featuregate.Feature = "UserNamespacesSupport"
 
 	// owner: @cofyc
 	// alpha: v1.21
@@ -880,8 +888,6 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
 
 	CSIMigrationAzureFile: {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.28
 
-	CSIMigrationGCE: {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.27
-
 	CSIMigrationPortworx: {Default: false, PreRelease: featuregate.Beta}, // Off by default (requires Portworx CSI driver)
 
 	CSIMigrationRBD: {Default: false, PreRelease: featuregate.Alpha}, // Off by default (requires RBD CSI driver)
@@ -899,6 +905,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
 	ContainerCheckpoint: {Default: false, PreRelease: featuregate.Alpha},
 
 	ConsistentHTTPGetHandlers: {Default: true, PreRelease: featuregate.GA},
+
+	CronJobsScheduledAnnotation: {Default: true, PreRelease: featuregate.Beta},
 
 	CronJobTimeZone: {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.29
 
@@ -948,9 +956,9 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
 
 	IPTablesOwnershipCleanup: {Default: true, PreRelease: featuregate.Beta},
 
-	JobPodFailurePolicy: {Default: true, PreRelease: featuregate.Beta},
-
 	JobMutableNodeSchedulingDirectives: {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.29
+
+	JobPodFailurePolicy: {Default: true, PreRelease: featuregate.Beta},
 
 	JobReadyPods: {Default: true, PreRelease: featuregate.Beta},
 
@@ -1026,7 +1034,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
 
 	RecoverVolumeExpansionFailure: {Default: false, PreRelease: featuregate.Alpha},
 
-	RetroactiveDefaultStorageClass: {Default: true, PreRelease: featuregate.Beta},
+	RetroactiveDefaultStorageClass: {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.29
 
 	RotateKubeletServerCertificate: {Default: true, PreRelease: featuregate.Beta},
 
@@ -1037,6 +1045,8 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
 	SecurityContextDeny: {Default: false, PreRelease: featuregate.Alpha},
 
 	ServiceNodePortStaticSubrange: {Default: true, PreRelease: featuregate.Beta},
+
+	SidecarContainers: {Default: false, PreRelease: featuregate.Alpha},
 
 	SizeMemoryBackedVolumes: {Default: true, PreRelease: featuregate.Beta},
 
@@ -1058,7 +1068,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
 
 	VolumeCapacityPriority: {Default: false, PreRelease: featuregate.Alpha},
 
-	UserNamespacesStatelessPodsSupport: {Default: false, PreRelease: featuregate.Alpha},
+	UserNamespacesSupport: {Default: false, PreRelease: featuregate.Alpha},
 
 	WinDSR: {Default: false, PreRelease: featuregate.Alpha},
 

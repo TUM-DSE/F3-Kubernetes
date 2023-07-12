@@ -2279,6 +2279,24 @@ type Container struct {
 	// +featureGate=InPlacePodVerticalScaling
 	// +optional
 	ResizePolicy []ContainerResizePolicy
+	// RestartPolicy defines the restart behavior of individual containers in a pod.
+	// This field may only be set for init containers, and the only allowed value is "Always".
+	// For non-init containers or when this field is not specified,
+	// the restart behavior is defined by the Pod's restart policy and the container type.
+	// Setting the RestartPolicy as "Always" for the init container will have the following effect:
+	// this init container will be continually restarted on
+	// exit until all regular containers have terminated. Once all regular
+	// containers have completed, all init containers with restartPolicy "Always"
+	// will be shut down. This lifecycle differs from normal init containers and
+	// is often referred to as a "sidecar" container. Although this init
+	// container still starts in the init container sequence, it does not wait
+	// for the container to complete before proceeding to the next init
+	// container. Instead, the next init container starts immediately after this
+	// init container is started, or after any startupProbe has successfully
+	// completed.
+	// +featureGate=SidecarContainers
+	// +optional
+	RestartPolicy *ContainerRestartPolicy
 	// +optional
 	VolumeMounts []VolumeMount
 	// volumeDevices is the list of block devices to be used by the container.
@@ -2595,6 +2613,14 @@ const (
 	RestartPolicyAlways    RestartPolicy = "Always"
 	RestartPolicyOnFailure RestartPolicy = "OnFailure"
 	RestartPolicyNever     RestartPolicy = "Never"
+)
+
+// ContainerRestartPolicy is the restart policy for a single container.
+// This may only be set for init containers and only allowed value is "Always".
+type ContainerRestartPolicy string
+
+const (
+	ContainerRestartPolicyAlways ContainerRestartPolicy = "Always"
 )
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -3184,20 +3210,30 @@ type ClaimSource struct {
 	//
 	// The template will be used to create a new ResourceClaim, which will
 	// be bound to this pod. When this pod is deleted, the ResourceClaim
-	// will also be deleted. The name of the ResourceClaim will be <pod
-	// name>-<resource name>, where <resource name> is the
-	// PodResourceClaim.Name. Pod validation will reject the pod if the
-	// concatenated name is not valid for a ResourceClaim (e.g. too long).
-	//
-	// An existing ResourceClaim with that name that is not owned by the
-	// pod will not be used for the pod to avoid using an unrelated
-	// resource by mistake. Scheduling and pod startup are then blocked
-	// until the unrelated ResourceClaim is removed.
+	// will also be deleted. The pod name and resource name, along with a
+	// generated component, will be used to form a unique name for the
+	// ResourceClaim, which will be recorded in pod.status.resourceClaimStatuses.
 	//
 	// This field is immutable and no changes will be made to the
 	// corresponding ResourceClaim by the control plane after creating the
 	// ResourceClaim.
 	ResourceClaimTemplateName *string
+}
+
+// PodResourceClaimStatus is stored in the PodStatus for each PodResourceClaim
+// which references a ResourceClaimTemplate. It stores the generated name for
+// the corresponding ResourceClaim.
+type PodResourceClaimStatus struct {
+	// Name uniquely identifies this resource claim inside the pod.
+	// This must match the name of an entry in pod.spec.resourceClaims,
+	// which implies that the string must be a DNS_LABEL.
+	Name string
+
+	// ResourceClaimName is the name of the ResourceClaim that was
+	// generated for the Pod in the namespace of the Pod. It this is
+	// unset, then generating a ResourceClaim was not necessary. The
+	// pod.spec.resourceClaims entry can be ignored in this case.
+	ResourceClaimName *string
 }
 
 // OSName is the set of OS'es that can be used in OS.
@@ -3505,6 +3541,13 @@ type EphemeralContainerCommon struct {
 	// +featureGate=InPlacePodVerticalScaling
 	// +optional
 	ResizePolicy []ContainerResizePolicy
+	// Restart policy for the container to manage the restart behavior of each
+	// container within a pod.
+	// This may only be set for init containers. You cannot set this field on
+	// ephemeral containers.
+	// +featureGate=SidecarContainers
+	// +optional
+	RestartPolicy *ContainerRestartPolicy
 	// Pod volumes to mount into the container's filesystem. Subpath mounts are not allowed for ephemeral containers.
 	// +optional
 	VolumeMounts []VolumeMount
@@ -3628,6 +3671,11 @@ type PodStatus struct {
 	// +featureGate=InPlacePodVerticalScaling
 	// +optional
 	Resize PodResizeStatus
+
+	// Status of resource claims.
+	// +featureGate=DynamicResourceAllocation
+	// +optional
+	ResourceClaimStatuses []PodResourceClaimStatus
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

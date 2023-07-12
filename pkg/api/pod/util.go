@@ -477,7 +477,7 @@ func dropDisabledFields(
 	}
 
 	// If the feature is disabled and not in use, drop the hostUsers field.
-	if !utilfeature.DefaultFeatureGate.Enabled(features.UserNamespacesStatelessPodsSupport) && !hostUsersInUse(oldPodSpec) {
+	if !utilfeature.DefaultFeatureGate.Enabled(features.UserNamespacesSupport) && !hostUsersInUse(oldPodSpec) {
 		// Drop the field in podSpec only if SecurityContext is not nil.
 		// If it is nil, there is no need to set hostUsers=nil (it will be nil too).
 		if podSpec.SecurityContext != nil {
@@ -510,6 +510,14 @@ func dropDisabledFields(
 			podSpec.EphemeralContainers[i].ResizePolicy = nil
 		}
 	}
+
+	if !utilfeature.DefaultFeatureGate.Enabled(features.SidecarContainers) && !restartableInitContainersInUse(oldPodSpec) {
+		// Drop the RestartPolicy field of init containers.
+		for i := range podSpec.InitContainers {
+			podSpec.InitContainers[i].RestartPolicy = nil
+		}
+		// For other types of containers, validateContainers will handle them.
+	}
 }
 
 // dropDisabledPodStatusFields removes disabled fields from the pod status
@@ -531,6 +539,10 @@ func dropDisabledPodStatusFields(podStatus, oldPodStatus *api.PodStatus, podSpec
 		dropResourcesFields(podStatus.InitContainerStatuses)
 		dropResourcesFields(podStatus.EphemeralContainerStatuses)
 		podStatus.Resize = ""
+	}
+
+	if !utilfeature.DefaultFeatureGate.Enabled(features.DynamicResourceAllocation) && !dynamicResourceAllocationInUse(oldPodSpec) {
+		podStatus.ResourceClaimStatuses = nil
 	}
 }
 
@@ -776,6 +788,23 @@ func schedulingGatesInUse(podSpec *api.PodSpec) bool {
 		return false
 	}
 	return len(podSpec.SchedulingGates) != 0
+}
+
+// restartableInitContainersInUse returns true if the pod spec is non-nil and
+// it has any init container with ContainerRestartPolicyAlways.
+func restartableInitContainersInUse(podSpec *api.PodSpec) bool {
+	if podSpec == nil {
+		return false
+	}
+	var inUse bool
+	VisitContainers(podSpec, InitContainers, func(c *api.Container, containerType ContainerType) bool {
+		if c.RestartPolicy != nil && *c.RestartPolicy == api.ContainerRestartPolicyAlways {
+			inUse = true
+			return false
+		}
+		return true
+	})
+	return inUse
 }
 
 func hasInvalidLabelValueInAffinitySelector(spec *api.PodSpec) bool {

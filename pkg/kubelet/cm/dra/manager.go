@@ -67,11 +67,47 @@ func NewManagerImpl(kubeClient clientset.Interface, stateFileDirectory string) (
 // containerResources on success.
 func (m *ManagerImpl) PrepareResources(pod *v1.Pod) error {
 	for i := range pod.Spec.ResourceClaims {
-		claimName := resourceclaim.Name(pod, &pod.Spec.ResourceClaims[i])
-		klog.V(3).InfoS("Processing resource", "claim", claimName, "pod", pod.Name)
+		podClaim := &pod.Spec.ResourceClaims[i]
+		klog.V(3).InfoS("Processing resource", "podClaim", podClaim.Name, "pod", pod.Name)
+		claimName, mustCheckOwner, err := resourceclaim.Name(pod, podClaim)
+		if err != nil {
+			return fmt.Errorf("prepare resource claim: %v", err)
+		}
 
-		// Resource is already prepared, add pod UID to it
-		if claimInfo := m.cache.get(claimName, pod.Namespace); claimInfo != nil {
+		if claimName == nil {
+			// Nothing to do.
+			continue
+		}
+		// Query claim object from the API server
+		resourceClaim, err := m.kubeClient.ResourceV1alpha2().ResourceClaims(pod.Namespace).Get(
+			context.TODO(),
+			*claimName,
+			metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to fetch ResourceClaim %s referenced by pod %s: %+v", *claimName, pod.Name, err)
+		}
+
+		if mustCheckOwner {
+			if err = resourceclaim.IsForPod(pod, resourceClaim); err != nil {
+				return err
+			}
+		}
+
+		// Check if pod is in the ReservedFor for the claim
+		if !resourceclaim.IsReservedForPod(pod, resourceClaim) {
+			return fmt.Errorf("pod %s(%s) is not allowed to use resource claim %s(%s)",
+				pod.Name, pod.UID, *claimName, resourceClaim.UID)
+		}
+
+		// If no container actually uses the claim, then we don't need
+		// to prepare it.
+		if !claimIsUsedByPod(podClaim, pod) {
+			klog.V(5).InfoS("Skipping unused resource", "claim", claimName, "pod", pod.Name)
+			continue
+		}
+
+		// Is the resource already prepared? Then add the pod UID to it.
+		if claimInfo := m.cache.get(*claimName, pod.Namespace); claimInfo != nil {
 			// We delay checkpointing of this change until this call
 			// returns successfully. It is OK to do this because we
 			// will only return successfully from this call if the
@@ -82,21 +118,6 @@ func (m *ManagerImpl) PrepareResources(pod *v1.Pod) error {
 			// in the cache.
 			claimInfo.addPodReference(pod.UID)
 			continue
-		}
-
-		// Query claim object from the API server
-		resourceClaim, err := m.kubeClient.ResourceV1alpha2().ResourceClaims(pod.Namespace).Get(
-			context.TODO(),
-			claimName,
-			metav1.GetOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to fetch ResourceClaim %s referenced by pod %s: %+v", claimName, pod.Name, err)
-		}
-
-		// Check if pod is in the ReservedFor for the claim
-		if !resourceclaim.IsReservedForPod(pod, resourceClaim) {
-			return fmt.Errorf("pod %s(%s) is not allowed to use resource claim %s(%s)",
-				pod.Name, pod.UID, claimName, resourceClaim.UID)
 		}
 
 		// Grab the allocation.resourceHandles. If there are no
@@ -178,6 +199,34 @@ func (m *ManagerImpl) PrepareResources(pod *v1.Pod) error {
 	return nil
 }
 
+func claimIsUsedByPod(podClaim *v1.PodResourceClaim, pod *v1.Pod) bool {
+	if claimIsUsedByContainers(podClaim, pod.Spec.InitContainers) {
+		return true
+	}
+	if claimIsUsedByContainers(podClaim, pod.Spec.Containers) {
+		return true
+	}
+	return false
+}
+
+func claimIsUsedByContainers(podClaim *v1.PodResourceClaim, containers []v1.Container) bool {
+	for i := range containers {
+		if claimIsUsedByContainer(podClaim, &containers[i]) {
+			return true
+		}
+	}
+	return false
+}
+
+func claimIsUsedByContainer(podClaim *v1.PodResourceClaim, container *v1.Container) bool {
+	for _, c := range container.Resources.Claims {
+		if c.Name == podClaim.Name {
+			return true
+		}
+	}
+	return false
+}
+
 // GetResources gets a ContainerInfo object from the claimInfo cache.
 // This information is used by the caller to update a container config.
 func (m *ManagerImpl) GetResources(pod *v1.Pod, container *v1.Container) (*ContainerInfo, error) {
@@ -185,25 +234,35 @@ func (m *ManagerImpl) GetResources(pod *v1.Pod, container *v1.Container) (*Conta
 	cdiDevices := []kubecontainer.CDIDevice{}
 
 	for i, podResourceClaim := range pod.Spec.ResourceClaims {
-		claimName := resourceclaim.Name(pod, &pod.Spec.ResourceClaims[i])
-
+		claimName, _, err := resourceclaim.Name(pod, &pod.Spec.ResourceClaims[i])
+		if err != nil {
+			return nil, fmt.Errorf("list resource claims: %v", err)
+		}
+		// The claim name might be nil if no underlying resource claim
+		// was generated for the referenced claim. There are valid use
+		// cases when this might happen, so we simply skip it.
+		if claimName == nil {
+			continue
+		}
 		for _, claim := range container.Resources.Claims {
 			if podResourceClaim.Name != claim.Name {
 				continue
 			}
 
-			claimInfo := m.cache.get(claimName, pod.Namespace)
+			claimInfo := m.cache.get(*claimName, pod.Namespace)
 			if claimInfo == nil {
-				return nil, fmt.Errorf("unable to get resource for namespace: %s, claim: %s", pod.Namespace, claimName)
+				return nil, fmt.Errorf("unable to get resource for namespace: %s, claim: %s", pod.Namespace, *claimName)
 			}
 
-			klog.V(3).InfoS("Add resource annotations", "claim", claimName, "annotations", claimInfo.annotations)
+			claimInfo.RLock()
+			klog.V(3).InfoS("Add resource annotations", "claim", *claimName, "annotations", claimInfo.annotations)
 			annotations = append(annotations, claimInfo.annotations...)
 			for _, devices := range claimInfo.CDIDevices {
 				for _, device := range devices {
 					cdiDevices = append(cdiDevices, kubecontainer.CDIDevice{Name: device})
 				}
 			}
+			claimInfo.RUnlock()
 		}
 	}
 
@@ -217,8 +276,19 @@ func (m *ManagerImpl) GetResources(pod *v1.Pod, container *v1.Container) (*Conta
 func (m *ManagerImpl) UnprepareResources(pod *v1.Pod) error {
 	// Call NodeUnprepareResource RPC for every resource claim referenced by the pod
 	for i := range pod.Spec.ResourceClaims {
-		claimName := resourceclaim.Name(pod, &pod.Spec.ResourceClaims[i])
-		claimInfo := m.cache.get(claimName, pod.Namespace)
+		claimName, _, err := resourceclaim.Name(pod, &pod.Spec.ResourceClaims[i])
+		if err != nil {
+			return fmt.Errorf("unprepare resource claim: %v", err)
+		}
+
+		// The claim name might be nil if no underlying resource claim
+		// was generated for the referenced claim. There are valid use
+		// cases when this might happen, so we simply skip it.
+		if claimName == nil {
+			continue
+		}
+
+		claimInfo := m.cache.get(*claimName, pod.Namespace)
 
 		// Skip calling NodeUnprepareResource if claim info is not cached
 		if claimInfo == nil {
@@ -239,10 +309,10 @@ func (m *ManagerImpl) UnprepareResources(pod *v1.Pod) error {
 		// Query claim object from the API server
 		resourceClaim, err := m.kubeClient.ResourceV1alpha2().ResourceClaims(pod.Namespace).Get(
 			context.TODO(),
-			claimName,
+			*claimName,
 			metav1.GetOptions{})
 		if err != nil {
-			return fmt.Errorf("failed to fetch ResourceClaim %s referenced by pod %s: %+v", claimName, pod.Name, err)
+			return fmt.Errorf("failed to fetch ResourceClaim %s referenced by pod %s: %+v", *claimName, pod.Name, err)
 		}
 
 		// Grab the allocation.resourceHandles. If there are no
@@ -277,8 +347,8 @@ func (m *ManagerImpl) UnprepareResources(pod *v1.Pod) error {
 				resourceHandle.Data)
 			if err != nil {
 				return fmt.Errorf(
-					"NodeUnprepareResource failed, pod: %s, claim UID: %s, claim name: %s, CDI devices: %s, err: %+v",
-					pod.Name, claimInfo.ClaimUID, claimInfo.ClaimName, claimInfo.CDIDevices, err)
+					"NodeUnprepareResource failed, pod: %s, claim UID: %s, claim name: %s, resource handle: %s, err: %+v",
+					pod.Name, claimInfo.ClaimUID, claimInfo.ClaimName, resourceHandle.Data, err)
 			}
 			klog.V(3).InfoS("NodeUnprepareResource succeeded", "response", response)
 		}
@@ -315,15 +385,18 @@ func (m *ManagerImpl) GetContainerClaimInfos(pod *v1.Pod, container *v1.Containe
 	claimInfos := make([]*ClaimInfo, 0, len(pod.Spec.ResourceClaims))
 
 	for i, podResourceClaim := range pod.Spec.ResourceClaims {
-		claimName := resourceclaim.Name(pod, &pod.Spec.ResourceClaims[i])
+		claimName, _, err := resourceclaim.Name(pod, &pod.Spec.ResourceClaims[i])
+		if err != nil {
+			return nil, fmt.Errorf("determine resource claim information: %v", err)
+		}
 
 		for _, claim := range container.Resources.Claims {
 			if podResourceClaim.Name != claim.Name {
 				continue
 			}
-			claimInfo := m.cache.get(claimName, pod.Namespace)
+			claimInfo := m.cache.get(*claimName, pod.Namespace)
 			if claimInfo == nil {
-				return nil, fmt.Errorf("unable to get resource for namespace: %s, claim: %s", pod.Namespace, claimName)
+				return nil, fmt.Errorf("unable to get resource for namespace: %s, claim: %s", pod.Namespace, *claimName)
 			}
 			claimInfos = append(claimInfos, claimInfo)
 		}

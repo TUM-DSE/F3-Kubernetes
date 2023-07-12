@@ -2019,18 +2019,15 @@ type PersistentVolumeClaimSpecValidationOptions struct {
 	AllowReadWriteOncePod bool
 	// Allow users to recover from previously failing expansion operation
 	EnableRecoverFromExpansionFailure bool
-	// Allow assigning StorageClass to unbound PVCs retroactively
-	EnableRetroactiveDefaultStorageClass bool
 	// Allow to validate the label value of the label selector
 	AllowInvalidLabelValueInSelector bool
 }
 
 func ValidationOptionsForPersistentVolumeClaim(pvc, oldPvc *core.PersistentVolumeClaim) PersistentVolumeClaimSpecValidationOptions {
 	opts := PersistentVolumeClaimSpecValidationOptions{
-		AllowReadWriteOncePod:                utilfeature.DefaultFeatureGate.Enabled(features.ReadWriteOncePod),
-		EnableRecoverFromExpansionFailure:    utilfeature.DefaultFeatureGate.Enabled(features.RecoverVolumeExpansionFailure),
-		EnableRetroactiveDefaultStorageClass: utilfeature.DefaultFeatureGate.Enabled(features.RetroactiveDefaultStorageClass),
-		AllowInvalidLabelValueInSelector:     false,
+		AllowReadWriteOncePod:             utilfeature.DefaultFeatureGate.Enabled(features.ReadWriteOncePod),
+		EnableRecoverFromExpansionFailure: utilfeature.DefaultFeatureGate.Enabled(features.RecoverVolumeExpansionFailure),
+		AllowInvalidLabelValueInSelector:  false,
 	}
 	if oldPvc == nil {
 		// If there's no old PVC, use the options based solely on feature enablement
@@ -2286,16 +2283,14 @@ func validateStorageClassUpgradeFromAnnotation(oldAnnotations, newAnnotations ma
 
 // Provide an upgrade path from PVC with nil storage class. We allow update of
 // StorageClassName only if following four conditions are met at the same time:
-// 1. RetroactiveDefaultStorageClass FeatureGate is enabled
-// 2. The new pvc's StorageClassName is not nil
-// 3. The old pvc's StorageClassName is nil
-// 4. The old pvc either does not have beta annotation set, or the beta annotation matches new pvc's StorageClassName
+// 1. The new pvc's StorageClassName is not nil
+// 2. The old pvc's StorageClassName is nil
+// 3. The old pvc either does not have beta annotation set, or the beta annotation matches new pvc's StorageClassName
 func validateStorageClassUpgradeFromNil(oldAnnotations map[string]string, oldScName, newScName *string, opts PersistentVolumeClaimSpecValidationOptions) bool {
 	oldAnnotation, oldAnnotationExist := oldAnnotations[core.BetaStorageClassAnnotation]
-	return opts.EnableRetroactiveDefaultStorageClass /* condition 1 */ &&
-		newScName != nil /* condition 2 */ &&
-		oldScName == nil /* condition 3 */ &&
-		(!oldAnnotationExist || *newScName == oldAnnotation) /* condition 4 */
+	return newScName != nil /* condition 1 */ &&
+		oldScName == nil /* condition 2 */ &&
+		(!oldAnnotationExist || *newScName == oldAnnotation) /* condition 3 */
 }
 
 var resizeStatusSet = sets.NewString(string(core.PersistentVolumeClaimNoExpansionInProgress),
@@ -2840,6 +2835,23 @@ func validateProbe(probe *core.Probe, fldPath *field.Path) field.ErrorList {
 	return allErrs
 }
 
+func validateInitContainerRestartPolicy(restartPolicy *core.ContainerRestartPolicy, fldPath *field.Path) field.ErrorList {
+	var allErrors field.ErrorList
+
+	if restartPolicy == nil {
+		return allErrors
+	}
+	switch *restartPolicy {
+	case core.ContainerRestartPolicyAlways:
+		break
+	default:
+		validValues := []string{string(core.ContainerRestartPolicyAlways)}
+		allErrors = append(allErrors, field.NotSupported(fldPath, *restartPolicy, validValues))
+	}
+
+	return allErrors
+}
+
 type commonHandler struct {
 	Exec      *core.ExecAction
 	HTTPGet   *core.HTTPGetAction
@@ -3170,6 +3182,13 @@ func validateInitContainers(containers []core.Container, regularContainers []cor
 		// Apply the validation common to all container types
 		allErrs = append(allErrs, validateContainerCommon(&ctr, volumes, podClaimNames, idxPath, opts)...)
 
+		restartAlways := false
+		// Apply the validation specific to init containers
+		if ctr.RestartPolicy != nil {
+			allErrs = append(allErrs, validateInitContainerRestartPolicy(ctr.RestartPolicy, idxPath.Child("restartPolicy"))...)
+			restartAlways = *ctr.RestartPolicy == core.ContainerRestartPolicyAlways
+		}
+
 		// Names must be unique within regular and init containers. Collisions with ephemeral containers
 		// will be detected by validateEphemeralContainers().
 		if allNames.Has(ctr.Name) {
@@ -3181,19 +3200,41 @@ func validateInitContainers(containers []core.Container, regularContainers []cor
 		// Check for port conflicts in init containers individually since init containers run one-by-one.
 		allErrs = append(allErrs, checkHostPortConflicts([]core.Container{ctr}, fldPath)...)
 
-		// These fields are disallowed for init containers.
-		if ctr.Lifecycle != nil {
-			allErrs = append(allErrs, field.Forbidden(idxPath.Child("lifecycle"), "may not be set for init containers"))
+		switch {
+		case restartAlways:
+			// TODO: Allow restartable init containers to have a lifecycle hook.
+			if ctr.Lifecycle != nil {
+				allErrs = append(allErrs, field.Forbidden(idxPath.Child("lifecycle"), "may not be set for init containers"))
+			}
+			// TODO: Allow restartable init containers to have a liveness probe.
+			if ctr.LivenessProbe != nil {
+				allErrs = append(allErrs, field.Forbidden(idxPath.Child("livenessProbe"), "may not be set for init containers"))
+			}
+			// TODO: Allow restartable init containers to have a readiness probe.
+			if ctr.ReadinessProbe != nil {
+				allErrs = append(allErrs, field.Forbidden(idxPath.Child("readinessProbe"), "may not be set for init containers"))
+			}
+			allErrs = append(allErrs, validateProbe(ctr.StartupProbe, idxPath.Child("startupProbe"))...)
+			if ctr.StartupProbe != nil && ctr.StartupProbe.SuccessThreshold != 1 {
+				allErrs = append(allErrs, field.Invalid(idxPath.Child("startupProbe", "successThreshold"), ctr.StartupProbe.SuccessThreshold, "must be 1"))
+			}
+
+		default:
+			// These fields are disallowed for init containers.
+			if ctr.Lifecycle != nil {
+				allErrs = append(allErrs, field.Forbidden(idxPath.Child("lifecycle"), "may not be set for init containers"))
+			}
+			if ctr.LivenessProbe != nil {
+				allErrs = append(allErrs, field.Forbidden(idxPath.Child("livenessProbe"), "may not be set for init containers"))
+			}
+			if ctr.ReadinessProbe != nil {
+				allErrs = append(allErrs, field.Forbidden(idxPath.Child("readinessProbe"), "may not be set for init containers"))
+			}
+			if ctr.StartupProbe != nil {
+				allErrs = append(allErrs, field.Forbidden(idxPath.Child("startupProbe"), "may not be set for init containers"))
+			}
 		}
-		if ctr.LivenessProbe != nil {
-			allErrs = append(allErrs, field.Forbidden(idxPath.Child("livenessProbe"), "may not be set for init containers"))
-		}
-		if ctr.ReadinessProbe != nil {
-			allErrs = append(allErrs, field.Forbidden(idxPath.Child("readinessProbe"), "may not be set for init containers"))
-		}
-		if ctr.StartupProbe != nil {
-			allErrs = append(allErrs, field.Forbidden(idxPath.Child("startupProbe"), "may not be set for init containers"))
-		}
+
 		if len(ctr.ResizePolicy) > 0 {
 			allErrs = append(allErrs, field.Invalid(idxPath.Child("resizePolicy"), ctr.ResizePolicy, "must not be set for init containers"))
 		}
@@ -3256,25 +3297,6 @@ func validateHostUsers(spec *core.PodSpec, fldPath *field.Path) field.ErrorList 
 		return allErrs
 	}
 
-	// For now only these volumes are supported:
-	// - configmap
-	// - secret
-	// - downwardAPI
-	// - emptyDir
-	// - projected
-	// So reject anything else.
-	for i, vol := range spec.Volumes {
-		switch {
-		case vol.EmptyDir != nil:
-		case vol.Secret != nil:
-		case vol.DownwardAPI != nil:
-		case vol.ConfigMap != nil:
-		case vol.Projected != nil:
-		default:
-			allErrs = append(allErrs, field.Forbidden(fldPath.Child("volumes").Index(i), "volume type not supported when `pod.Spec.HostUsers` is false"))
-		}
-	}
-
 	// We decided to restrict the usage of userns with other host namespaces:
 	// 	https://github.com/kubernetes/kubernetes/pull/111090#discussion_r935994282
 	// The tl;dr is: you can easily run into permission issues that seem unexpected, we don't
@@ -3334,6 +3356,11 @@ func validateContainers(containers []core.Container, volumes map[string]core.Vol
 		allErrs = append(allErrs, validateProbe(ctr.StartupProbe, path.Child("startupProbe"))...)
 		if ctr.StartupProbe != nil && ctr.StartupProbe.SuccessThreshold != 1 {
 			allErrs = append(allErrs, field.Invalid(path.Child("startupProbe", "successThreshold"), ctr.StartupProbe.SuccessThreshold, "must be 1"))
+		}
+
+		// These fields are disallowed for regular containers
+		if ctr.RestartPolicy != nil {
+			allErrs = append(allErrs, field.Forbidden(path.Child("restartPolicy"), "may not be set for non-init containers"))
 		}
 	}
 
@@ -4818,6 +4845,7 @@ func ValidatePodStatusUpdate(newPod, oldPod *core.Pod, opts PodValidationOptions
 	allErrs = append(allErrs, ValidateContainerStateTransition(newPod.Status.InitContainerStatuses, oldPod.Status.InitContainerStatuses, fldPath.Child("initContainerStatuses"), oldPod.Spec.RestartPolicy)...)
 	// The kubelet will never restart ephemeral containers, so treat them like they have an implicit RestartPolicyNever.
 	allErrs = append(allErrs, ValidateContainerStateTransition(newPod.Status.EphemeralContainerStatuses, oldPod.Status.EphemeralContainerStatuses, fldPath.Child("ephemeralContainerStatuses"), core.RestartPolicyNever)...)
+	allErrs = append(allErrs, validatePodResourceClaimStatuses(newPod.Status.ResourceClaimStatuses, newPod.Spec.ResourceClaims, fldPath.Child("resourceClaimStatuses"))...)
 
 	if newIPErrs := validatePodIPs(newPod); len(newIPErrs) > 0 {
 		allErrs = append(allErrs, newIPErrs...)
@@ -4837,6 +4865,36 @@ func validatePodConditions(conditions []core.PodCondition, fldPath *field.Path) 
 		allErrs = append(allErrs, ValidateQualifiedName(string(condition.Type), fldPath.Index(i).Child("Type"))...)
 	}
 	return allErrs
+}
+
+// validatePodResourceClaimStatuses validates the ResourceClaimStatuses slice in a pod status.
+func validatePodResourceClaimStatuses(statuses []core.PodResourceClaimStatus, podClaims []core.PodResourceClaim, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+
+	for i, status := range statuses {
+		idxPath := fldPath.Index(i)
+		// There's no need to check the content of the name. If it matches an entry,
+		// then it is valid, otherwise we reject it here.
+		if !havePodClaim(podClaims, status.Name) {
+			allErrs = append(allErrs, field.Invalid(idxPath.Child("name"), status.Name, "must match the name of an entry in `spec.resourceClaims`"))
+		}
+		if status.ResourceClaimName != nil {
+			for _, detail := range ValidateResourceClaimName(*status.ResourceClaimName, false) {
+				allErrs = append(allErrs, field.Invalid(idxPath.Child("name"), status.ResourceClaimName, detail))
+			}
+		}
+	}
+
+	return allErrs
+}
+
+func havePodClaim(podClaims []core.PodResourceClaim, name string) bool {
+	for _, podClaim := range podClaims {
+		if podClaim.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidatePodEphemeralContainersUpdate tests that a user update to EphemeralContainers is valid.

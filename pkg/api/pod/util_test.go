@@ -822,6 +822,11 @@ func TestDropDynamicResourceAllocation(t *testing.T) {
 				},
 			},
 		},
+		Status: api.PodStatus{
+			ResourceClaimStatuses: []api.PodResourceClaimStatus{
+				{Name: "my-claim", ResourceClaimName: pointer.String("pod-my-claim")},
+			},
+		},
 	}
 	podWithoutClaims := &api.Pod{
 		Spec: api.PodSpec{
@@ -1700,7 +1705,7 @@ func TestDropHostUsers(t *testing.T) {
 				}
 
 				t.Run(fmt.Sprintf("feature enabled=%v, old pod %v, new pod %v", enabled, oldPodInfo.description, newPodInfo.description), func(t *testing.T) {
-					defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.UserNamespacesStatelessPodsSupport, enabled)()
+					defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.UserNamespacesSupport, enabled)()
 
 					DropDisabledPodFields(newPod, oldPod)
 
@@ -2039,6 +2044,109 @@ func TestDropInPlacePodVerticalScaling(t *testing.T) {
 						// new pod should not have ResizePolicy
 						if !reflect.DeepEqual(newPod, podWithoutInPlaceVerticalScaling()) {
 							t.Errorf("new pod has ResizePolicy: %v", cmp.Diff(newPod, podWithoutInPlaceVerticalScaling()))
+						}
+					default:
+						// new pod should not need to be changed
+						if !reflect.DeepEqual(newPod, newPodInfo.pod()) {
+							t.Errorf("new pod changed: %v", cmp.Diff(newPod, newPodInfo.pod()))
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestDropSidecarContainers(t *testing.T) {
+	containerRestartPolicyAlways := api.ContainerRestartPolicyAlways
+
+	podWithSidecarContainers := func() *api.Pod {
+		return &api.Pod{
+			Spec: api.PodSpec{
+				InitContainers: []api.Container{
+					{
+						Name:          "c1",
+						Image:         "image",
+						RestartPolicy: &containerRestartPolicyAlways,
+					},
+				},
+			},
+		}
+	}
+
+	podWithoutSidecarContainers := func() *api.Pod {
+		return &api.Pod{
+			Spec: api.PodSpec{
+				InitContainers: []api.Container{
+					{
+						Name:  "c1",
+						Image: "image",
+					},
+				},
+			},
+		}
+	}
+
+	podInfo := []struct {
+		description         string
+		hasSidecarContainer bool
+		pod                 func() *api.Pod
+	}{
+		{
+			description:         "has a sidecar container",
+			hasSidecarContainer: true,
+			pod:                 podWithSidecarContainers,
+		},
+		{
+			description:         "does not have a sidecar container",
+			hasSidecarContainer: false,
+			pod:                 podWithoutSidecarContainers,
+		},
+		{
+			description:         "is nil",
+			hasSidecarContainer: false,
+			pod:                 func() *api.Pod { return nil },
+		},
+	}
+
+	for _, enabled := range []bool{true, false} {
+		for _, oldPodInfo := range podInfo {
+			for _, newPodInfo := range podInfo {
+				oldPodHasSidecarContainer, oldPod := oldPodInfo.hasSidecarContainer, oldPodInfo.pod()
+				newPodHasSidecarContainer, newPod := newPodInfo.hasSidecarContainer, newPodInfo.pod()
+				if newPod == nil {
+					continue
+				}
+
+				t.Run(fmt.Sprintf("feature enabled=%v, old pod %v, new pod %v", enabled, oldPodInfo.description, newPodInfo.description), func(t *testing.T) {
+					defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.SidecarContainers, enabled)()
+
+					var oldPodSpec *api.PodSpec
+					if oldPod != nil {
+						oldPodSpec = &oldPod.Spec
+					}
+					dropDisabledFields(&newPod.Spec, nil, oldPodSpec, nil)
+
+					// old pod should never be changed
+					if !reflect.DeepEqual(oldPod, oldPodInfo.pod()) {
+						t.Errorf("old pod changed: %v", cmp.Diff(oldPod, oldPodInfo.pod()))
+					}
+
+					switch {
+					case enabled || oldPodHasSidecarContainer:
+						// new pod shouldn't change if feature enabled or if old pod has
+						// any sidecar container
+						if !reflect.DeepEqual(newPod, newPodInfo.pod()) {
+							t.Errorf("new pod changed: %v", cmp.Diff(newPod, newPodInfo.pod()))
+						}
+					case newPodHasSidecarContainer:
+						// new pod should be changed
+						if reflect.DeepEqual(newPod, newPodInfo.pod()) {
+							t.Errorf("new pod was not changed")
+						}
+						// new pod should not have any sidecar container
+						if !reflect.DeepEqual(newPod, podWithoutSidecarContainers()) {
+							t.Errorf("new pod has a sidecar container: %v", cmp.Diff(newPod, podWithoutSidecarContainers()))
 						}
 					default:
 						// new pod should not need to be changed

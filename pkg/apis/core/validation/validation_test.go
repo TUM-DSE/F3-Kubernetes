@@ -54,6 +54,14 @@ const (
 	envVarNameErrMsg        = "a valid environment variable name must consist of"
 )
 
+var (
+	containerRestartPolicyAlways    = core.ContainerRestartPolicyAlways
+	containerRestartPolicyOnFailure = core.ContainerRestartPolicy("OnFailure")
+	containerRestartPolicyNever     = core.ContainerRestartPolicy("Never")
+	containerRestartPolicyInvalid   = core.ContainerRestartPolicy("invalid")
+	containerRestartPolicyEmpty     = core.ContainerRestartPolicy("")
+)
+
 type topologyPair struct {
 	key   string
 	value string
@@ -2420,11 +2428,10 @@ func TestValidatePersistentVolumeClaimUpdate(t *testing.T) {
 	})
 
 	scenarios := map[string]struct {
-		isExpectedFailure                    bool
-		oldClaim                             *core.PersistentVolumeClaim
-		newClaim                             *core.PersistentVolumeClaim
-		enableRecoverFromExpansion           bool
-		enableRetroactiveDefaultStorageClass bool
+		isExpectedFailure          bool
+		oldClaim                   *core.PersistentVolumeClaim
+		newClaim                   *core.PersistentVolumeClaim
+		enableRecoverFromExpansion bool
 	}{
 		"valid-update-volumeName-only": {
 			isExpectedFailure: false,
@@ -2536,67 +2543,34 @@ func TestValidatePersistentVolumeClaimUpdate(t *testing.T) {
 			newClaim:          validClaimStorageClassInSpec,
 		},
 		"valid-upgrade-nil-storage-class-spec-to-spec": {
-			isExpectedFailure:                    false,
-			oldClaim:                             validClaimStorageClassNil,
-			newClaim:                             validClaimStorageClassInSpec,
-			enableRetroactiveDefaultStorageClass: true,
-			// Feature enabled - change from nil sc name is valid if there is no beta annotation.
-		},
-		"invalid-upgrade-nil-storage-class-spec-to-spec": {
-			isExpectedFailure:                    true,
-			oldClaim:                             validClaimStorageClassNil,
-			newClaim:                             validClaimStorageClassInSpec,
-			enableRetroactiveDefaultStorageClass: false,
-			// Feature disabled - change from nil sc name is invalid if there is no beta annotation.
+			isExpectedFailure: false,
+			oldClaim:          validClaimStorageClassNil,
+			newClaim:          validClaimStorageClassInSpec,
 		},
 		"invalid-upgrade-not-nil-storage-class-spec-to-spec": {
-			isExpectedFailure:                    true,
-			oldClaim:                             validClaimStorageClassInSpec,
-			newClaim:                             validClaimStorageClassInSpecChanged,
-			enableRetroactiveDefaultStorageClass: true,
-			// Feature enablement must not allow non nil value change.
+			isExpectedFailure: true,
+			oldClaim:          validClaimStorageClassInSpec,
+			newClaim:          validClaimStorageClassInSpecChanged,
 		},
 		"invalid-upgrade-to-nil-storage-class-spec-to-spec": {
-			isExpectedFailure:                    true,
-			oldClaim:                             validClaimStorageClassInSpec,
-			newClaim:                             validClaimStorageClassNil,
-			enableRetroactiveDefaultStorageClass: true,
-			// Feature enablement must not allow change to nil value change.
-		},
-		"valid-upgrade-storage-class-annotation-and-nil-spec-to-spec": {
-			isExpectedFailure:                    false,
-			oldClaim:                             validClaimStorageClassInAnnotationAndNilInSpec,
-			newClaim:                             validClaimStorageClassInAnnotationAndSpec,
-			enableRetroactiveDefaultStorageClass: false,
-			// Change from nil sc name is valid if annotations match.
+			isExpectedFailure: true,
+			oldClaim:          validClaimStorageClassInSpec,
+			newClaim:          validClaimStorageClassNil,
 		},
 		"valid-upgrade-storage-class-annotation-and-nil-spec-to-spec-retro": {
-			isExpectedFailure:                    false,
-			oldClaim:                             validClaimStorageClassInAnnotationAndNilInSpec,
-			newClaim:                             validClaimStorageClassInAnnotationAndSpec,
-			enableRetroactiveDefaultStorageClass: true,
-			// Change from nil sc name is valid if annotations match, feature enablement must not break this old behavior.
-		},
-		"invalid-upgrade-storage-class-annotation-and-spec-to-spec": {
-			isExpectedFailure:                    true,
-			oldClaim:                             validClaimStorageClassInAnnotationAndSpec,
-			newClaim:                             validClaimStorageClassInSpecChanged,
-			enableRetroactiveDefaultStorageClass: false,
-			// Change from non nil sc name is invalid if annotations don't match.
+			isExpectedFailure: false,
+			oldClaim:          validClaimStorageClassInAnnotationAndNilInSpec,
+			newClaim:          validClaimStorageClassInAnnotationAndSpec,
 		},
 		"invalid-upgrade-storage-class-annotation-and-spec-to-spec-retro": {
-			isExpectedFailure:                    true,
-			oldClaim:                             validClaimStorageClassInAnnotationAndSpec,
-			newClaim:                             validClaimStorageClassInSpecChanged,
-			enableRetroactiveDefaultStorageClass: true,
-			// Change from non nil sc name is invalid if annotations don't match, feature enablement must not break this old behavior.
+			isExpectedFailure: true,
+			oldClaim:          validClaimStorageClassInAnnotationAndSpec,
+			newClaim:          validClaimStorageClassInSpecChanged,
 		},
 		"invalid-upgrade-storage-class-annotation-and-no-spec": {
-			isExpectedFailure:                    true,
-			oldClaim:                             validClaimStorageClassInAnnotationAndNilInSpec,
-			newClaim:                             validClaimStorageClassInSpecChanged,
-			enableRetroactiveDefaultStorageClass: true,
-			// Change from nil sc name is invalid if annotations don't match, feature enablement must not break this old behavior.
+			isExpectedFailure: true,
+			oldClaim:          validClaimStorageClassInAnnotationAndNilInSpec,
+			newClaim:          validClaimStorageClassInSpecChanged,
 		},
 		"invalid-upgrade-storage-class-annotation-to-spec": {
 			isExpectedFailure: true,
@@ -2662,7 +2636,6 @@ func TestValidatePersistentVolumeClaimUpdate(t *testing.T) {
 	for name, scenario := range scenarios {
 		t.Run(name, func(t *testing.T) {
 			defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.RecoverVolumeExpansionFailure, scenario.enableRecoverFromExpansion)()
-			defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.RetroactiveDefaultStorageClass, scenario.enableRetroactiveDefaultStorageClass)()
 			scenario.oldClaim.ResourceVersion = "1"
 			scenario.newClaim.ResourceVersion = "1"
 			opts := ValidationOptionsForPersistentVolumeClaim(scenario.newClaim, scenario.oldClaim)
@@ -2687,45 +2660,40 @@ func TestValidationOptionsForPersistentVolumeClaim(t *testing.T) {
 			oldPvc:                 nil,
 			enableReadWriteOncePod: true,
 			expectValidationOpts: PersistentVolumeClaimSpecValidationOptions{
-				AllowReadWriteOncePod:                true,
-				EnableRecoverFromExpansionFailure:    false,
-				EnableRetroactiveDefaultStorageClass: true,
+				AllowReadWriteOncePod:             true,
+				EnableRecoverFromExpansionFailure: false,
 			},
 		},
 		"rwop allowed because feature enabled": {
 			oldPvc:                 pvcWithAccessModes([]core.PersistentVolumeAccessMode{core.ReadWriteOnce}),
 			enableReadWriteOncePod: true,
 			expectValidationOpts: PersistentVolumeClaimSpecValidationOptions{
-				AllowReadWriteOncePod:                true,
-				EnableRecoverFromExpansionFailure:    false,
-				EnableRetroactiveDefaultStorageClass: true,
+				AllowReadWriteOncePod:             true,
+				EnableRecoverFromExpansionFailure: false,
 			},
 		},
 		"rwop not allowed because not used and feature disabled": {
 			oldPvc:                 pvcWithAccessModes([]core.PersistentVolumeAccessMode{core.ReadWriteOnce}),
 			enableReadWriteOncePod: false,
 			expectValidationOpts: PersistentVolumeClaimSpecValidationOptions{
-				AllowReadWriteOncePod:                false,
-				EnableRecoverFromExpansionFailure:    false,
-				EnableRetroactiveDefaultStorageClass: true,
+				AllowReadWriteOncePod:             false,
+				EnableRecoverFromExpansionFailure: false,
 			},
 		},
 		"rwop allowed because used and feature enabled": {
 			oldPvc:                 pvcWithAccessModes([]core.PersistentVolumeAccessMode{core.ReadWriteOncePod}),
 			enableReadWriteOncePod: true,
 			expectValidationOpts: PersistentVolumeClaimSpecValidationOptions{
-				AllowReadWriteOncePod:                true,
-				EnableRecoverFromExpansionFailure:    false,
-				EnableRetroactiveDefaultStorageClass: true,
+				AllowReadWriteOncePod:             true,
+				EnableRecoverFromExpansionFailure: false,
 			},
 		},
 		"rwop allowed because used and feature disabled": {
 			oldPvc:                 pvcWithAccessModes([]core.PersistentVolumeAccessMode{core.ReadWriteOncePod}),
 			enableReadWriteOncePod: false,
 			expectValidationOpts: PersistentVolumeClaimSpecValidationOptions{
-				AllowReadWriteOncePod:                true,
-				EnableRecoverFromExpansionFailure:    false,
-				EnableRetroactiveDefaultStorageClass: true,
+				AllowReadWriteOncePod:             true,
+				EnableRecoverFromExpansionFailure: false,
 			},
 		},
 	}
@@ -2736,7 +2704,7 @@ func TestValidationOptionsForPersistentVolumeClaim(t *testing.T) {
 
 			opts := ValidationOptionsForPersistentVolumeClaim(nil, tc.oldPvc)
 			if opts != tc.expectValidationOpts {
-				t.Errorf("Expected opts: %+v, received: %+v", opts, tc.expectValidationOpts)
+				t.Errorf("Expected opts: %+v, received: %+v", tc.expectValidationOpts, opts)
 			}
 		})
 	}
@@ -7169,6 +7137,71 @@ func TestValidateEphemeralContainers(t *testing.T) {
 			},
 		}},
 		field.ErrorList{{Type: field.ErrorTypeForbidden, Field: "ephemeralContainers[0].resizePolicy"}},
+	}, {
+		"Forbidden RestartPolicy: Always",
+		line(),
+		[]core.EphemeralContainer{{
+			EphemeralContainerCommon: core.EphemeralContainerCommon{
+				Name:                     "foo",
+				Image:                    "image",
+				ImagePullPolicy:          "IfNotPresent",
+				TerminationMessagePolicy: "File",
+				RestartPolicy:            &containerRestartPolicyAlways,
+			},
+		}},
+		field.ErrorList{{Type: field.ErrorTypeForbidden, Field: "ephemeralContainers[0].restartPolicy"}},
+	}, {
+		"Forbidden RestartPolicy: OnFailure",
+		line(),
+		[]core.EphemeralContainer{{
+			EphemeralContainerCommon: core.EphemeralContainerCommon{
+				Name:                     "foo",
+				Image:                    "image",
+				ImagePullPolicy:          "IfNotPresent",
+				TerminationMessagePolicy: "File",
+				RestartPolicy:            &containerRestartPolicyOnFailure,
+			},
+		}},
+		field.ErrorList{{Type: field.ErrorTypeForbidden, Field: "ephemeralContainers[0].restartPolicy"}},
+	}, {
+		"Forbidden RestartPolicy: Never",
+		line(),
+		[]core.EphemeralContainer{{
+			EphemeralContainerCommon: core.EphemeralContainerCommon{
+				Name:                     "foo",
+				Image:                    "image",
+				ImagePullPolicy:          "IfNotPresent",
+				TerminationMessagePolicy: "File",
+				RestartPolicy:            &containerRestartPolicyNever,
+			},
+		}},
+		field.ErrorList{{Type: field.ErrorTypeForbidden, Field: "ephemeralContainers[0].restartPolicy"}},
+	}, {
+		"Forbidden RestartPolicy: invalid",
+		line(),
+		[]core.EphemeralContainer{{
+			EphemeralContainerCommon: core.EphemeralContainerCommon{
+				Name:                     "foo",
+				Image:                    "image",
+				ImagePullPolicy:          "IfNotPresent",
+				TerminationMessagePolicy: "File",
+				RestartPolicy:            &containerRestartPolicyInvalid,
+			},
+		}},
+		field.ErrorList{{Type: field.ErrorTypeForbidden, Field: "ephemeralContainers[0].restartPolicy"}},
+	}, {
+		"Forbidden RestartPolicy: empty",
+		line(),
+		[]core.EphemeralContainer{{
+			EphemeralContainerCommon: core.EphemeralContainerCommon{
+				Name:                     "foo",
+				Image:                    "image",
+				ImagePullPolicy:          "IfNotPresent",
+				TerminationMessagePolicy: "File",
+				RestartPolicy:            &containerRestartPolicyEmpty,
+			},
+		}},
+		field.ErrorList{{Type: field.ErrorTypeForbidden, Field: "ephemeralContainers[0].restartPolicy"}},
 	},
 	}
 
@@ -8026,6 +8059,61 @@ func TestValidateContainers(t *testing.T) {
 			},
 		}},
 		field.ErrorList{{Type: field.ErrorTypeNotSupported, Field: "containers[0].resizePolicy"}},
+	}, {
+		"Forbidden RestartPolicy: Always",
+		line(),
+		[]core.Container{{
+			Name:                     "foo",
+			Image:                    "image",
+			ImagePullPolicy:          "IfNotPresent",
+			TerminationMessagePolicy: "File",
+			RestartPolicy:            &containerRestartPolicyAlways,
+		}},
+		field.ErrorList{{Type: field.ErrorTypeForbidden, Field: "containers[0].restartPolicy"}},
+	}, {
+		"Forbidden RestartPolicy: OnFailure",
+		line(),
+		[]core.Container{{
+			Name:                     "foo",
+			Image:                    "image",
+			ImagePullPolicy:          "IfNotPresent",
+			TerminationMessagePolicy: "File",
+			RestartPolicy:            &containerRestartPolicyOnFailure,
+		}},
+		field.ErrorList{{Type: field.ErrorTypeForbidden, Field: "containers[0].restartPolicy"}},
+	}, {
+		"Forbidden RestartPolicy: Never",
+		line(),
+		[]core.Container{{
+			Name:                     "foo",
+			Image:                    "image",
+			ImagePullPolicy:          "IfNotPresent",
+			TerminationMessagePolicy: "File",
+			RestartPolicy:            &containerRestartPolicyNever,
+		}},
+		field.ErrorList{{Type: field.ErrorTypeForbidden, Field: "containers[0].restartPolicy"}},
+	}, {
+		"Forbidden RestartPolicy: invalid",
+		line(),
+		[]core.Container{{
+			Name:                     "foo",
+			Image:                    "image",
+			ImagePullPolicy:          "IfNotPresent",
+			TerminationMessagePolicy: "File",
+			RestartPolicy:            &containerRestartPolicyInvalid,
+		}},
+		field.ErrorList{{Type: field.ErrorTypeForbidden, Field: "containers[0].restartPolicy"}},
+	}, {
+		"Forbidden RestartPolicy: empty",
+		line(),
+		[]core.Container{{
+			Name:                     "foo",
+			Image:                    "image",
+			ImagePullPolicy:          "IfNotPresent",
+			TerminationMessagePolicy: "File",
+			RestartPolicy:            &containerRestartPolicyEmpty,
+		}},
+		field.ErrorList{{Type: field.ErrorTypeForbidden, Field: "containers[0].restartPolicy"}},
 	},
 	}
 	for _, tc := range errorCases {
@@ -8075,6 +8163,18 @@ func TestValidateInitContainers(t *testing.T) {
 		},
 		ImagePullPolicy:          "IfNotPresent",
 		TerminationMessagePolicy: "File",
+	}, {
+		Name:                     "container-3-restart-always-with-startup-probe",
+		Image:                    "image",
+		ImagePullPolicy:          "IfNotPresent",
+		TerminationMessagePolicy: "File",
+		RestartPolicy:            &containerRestartPolicyAlways,
+		StartupProbe: &core.Probe{
+			ProbeHandler: core.ProbeHandler{
+				TCPSocket: &core.TCPSocketAction{Port: intstr.FromInt(80)},
+			},
+			SuccessThreshold: 1,
+		},
 	},
 	}
 	if errs := validateInitContainers(successCase, containers, volumeDevices, nil, field.NewPath("field"), PodValidationOptions{}); len(errs) != 0 {
@@ -8231,6 +8331,67 @@ func TestValidateInitContainers(t *testing.T) {
 			},
 		}},
 		field.ErrorList{{Type: field.ErrorTypeForbidden, Field: "initContainers[0].startupProbe", BadValue: ""}},
+	}, {
+		"Not supported RestartPolicy: OnFailure",
+		line(),
+		[]core.Container{{
+			Name:                     "init",
+			Image:                    "image",
+			ImagePullPolicy:          "IfNotPresent",
+			TerminationMessagePolicy: "File",
+			RestartPolicy:            &containerRestartPolicyOnFailure,
+		}},
+		field.ErrorList{{Type: field.ErrorTypeNotSupported, Field: "initContainers[0].restartPolicy", BadValue: containerRestartPolicyOnFailure}},
+	}, {
+		"Not supported RestartPolicy: Never",
+		line(),
+		[]core.Container{{
+			Name:                     "init",
+			Image:                    "image",
+			ImagePullPolicy:          "IfNotPresent",
+			TerminationMessagePolicy: "File",
+			RestartPolicy:            &containerRestartPolicyNever,
+		}},
+		field.ErrorList{{Type: field.ErrorTypeNotSupported, Field: "initContainers[0].restartPolicy", BadValue: containerRestartPolicyNever}},
+	}, {
+		"Not supported RestartPolicy: invalid",
+		line(),
+		[]core.Container{{
+			Name:                     "init",
+			Image:                    "image",
+			ImagePullPolicy:          "IfNotPresent",
+			TerminationMessagePolicy: "File",
+			RestartPolicy:            &containerRestartPolicyInvalid,
+		}},
+		field.ErrorList{{Type: field.ErrorTypeNotSupported, Field: "initContainers[0].restartPolicy", BadValue: containerRestartPolicyInvalid}},
+	}, {
+		"Not supported RestartPolicy: empty",
+		line(),
+		[]core.Container{{
+			Name:                     "init",
+			Image:                    "image",
+			ImagePullPolicy:          "IfNotPresent",
+			TerminationMessagePolicy: "File",
+			RestartPolicy:            &containerRestartPolicyEmpty,
+		}},
+		field.ErrorList{{Type: field.ErrorTypeNotSupported, Field: "initContainers[0].restartPolicy", BadValue: containerRestartPolicyEmpty}},
+	}, {
+		"invalid startup probe in restartable container, successThreshold != 1",
+		line(),
+		[]core.Container{{
+			Name:                     "restartable-init",
+			Image:                    "image",
+			ImagePullPolicy:          "IfNotPresent",
+			TerminationMessagePolicy: "File",
+			RestartPolicy:            &containerRestartPolicyAlways,
+			StartupProbe: &core.Probe{
+				ProbeHandler: core.ProbeHandler{
+					TCPSocket: &core.TCPSocketAction{Port: intstr.FromInt(80)},
+				},
+				SuccessThreshold: 2,
+			},
+		}},
+		field.ErrorList{{Type: field.ErrorTypeInvalid, Field: "initContainers[0].startupProbe.successThreshold", BadValue: int32(2)}},
 	},
 	}
 	for _, tc := range errorCases {
@@ -13468,6 +13629,82 @@ func TestValidatePodStatusUpdate(t *testing.T) {
 		},
 		"",
 		"Container statuses all containers terminated",
+	}, {
+		core.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "foo",
+			},
+			Status: core.PodStatus{
+				ResourceClaimStatuses: []core.PodResourceClaimStatus{
+					{Name: "no-such-claim", ResourceClaimName: utilpointer.String("my-claim")},
+				},
+			},
+		},
+		core.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "foo",
+			},
+		},
+		"status.resourceClaimStatuses[0].name: Invalid value: \"no-such-claim\": must match the name of an entry in `spec.resourceClaims`",
+		"Non-existent PodResourceClaim",
+	}, {
+		core.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "foo",
+			},
+			Spec: core.PodSpec{
+				ResourceClaims: []core.PodResourceClaim{
+					{Name: "my-claim"},
+				},
+			},
+			Status: core.PodStatus{
+				ResourceClaimStatuses: []core.PodResourceClaimStatus{
+					{Name: "my-claim", ResourceClaimName: utilpointer.String("%$!#")},
+				},
+			},
+		},
+		core.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "foo",
+			},
+			Spec: core.PodSpec{
+				ResourceClaims: []core.PodResourceClaim{
+					{Name: "my-claim"},
+				},
+			},
+		},
+		`status.resourceClaimStatuses[0].name: Invalid value: "%$!#": a lowercase RFC 1123 subdomain must consist of`,
+		"Invalid ResourceClaim name",
+	}, {
+		core.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "foo",
+			},
+			Spec: core.PodSpec{
+				ResourceClaims: []core.PodResourceClaim{
+					{Name: "my-claim"},
+					{Name: "my-other-claim"},
+				},
+			},
+			Status: core.PodStatus{
+				ResourceClaimStatuses: []core.PodResourceClaimStatus{
+					{Name: "my-claim", ResourceClaimName: utilpointer.String("foo-my-claim-12345")},
+					{Name: "my-other-claim", ResourceClaimName: nil},
+				},
+			},
+		},
+		core.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "foo",
+			},
+			Spec: core.PodSpec{
+				ResourceClaims: []core.PodResourceClaim{
+					{Name: "my-claim"},
+				},
+			},
+		},
+		"",
+		"ResourceClaimStatuses okay",
 	},
 	}
 
@@ -19363,6 +19600,7 @@ func TestValidateOSFields(t *testing.T) {
 		"Containers[*].Resources",
 		"Containers[*].ResizePolicy[*].RestartPolicy",
 		"Containers[*].ResizePolicy[*].ResourceName",
+		"Containers[*].RestartPolicy",
 		"Containers[*].SecurityContext.RunAsNonRoot",
 		"Containers[*].Stdin",
 		"Containers[*].StdinOnce",
@@ -19389,6 +19627,7 @@ func TestValidateOSFields(t *testing.T) {
 		"EphemeralContainers[*].EphemeralContainerCommon.Resources",
 		"EphemeralContainers[*].EphemeralContainerCommon.ResizePolicy[*].RestartPolicy",
 		"EphemeralContainers[*].EphemeralContainerCommon.ResizePolicy[*].ResourceName",
+		"EphemeralContainers[*].EphemeralContainerCommon.RestartPolicy",
 		"EphemeralContainers[*].EphemeralContainerCommon.Stdin",
 		"EphemeralContainers[*].EphemeralContainerCommon.StdinOnce",
 		"EphemeralContainers[*].EphemeralContainerCommon.TTY",
@@ -19417,6 +19656,7 @@ func TestValidateOSFields(t *testing.T) {
 		"InitContainers[*].Resources",
 		"InitContainers[*].ResizePolicy[*].RestartPolicy",
 		"InitContainers[*].ResizePolicy[*].ResourceName",
+		"InitContainers[*].RestartPolicy",
 		"InitContainers[*].Stdin",
 		"InitContainers[*].StdinOnce",
 		"InitContainers[*].TTY",
@@ -21780,8 +22020,8 @@ func TestValidateHostUsers(t *testing.T) {
 			}},
 		},
 	}, {
-		name:    "hostUsers=false - unsupported volume",
-		success: false,
+		name:    "hostUsers=false - stateful volume",
+		success: true,
 		spec: &core.PodSpec{
 			SecurityContext: &core.PodSecurityContext{
 				HostUsers: &falseVar,
@@ -21794,7 +22034,6 @@ func TestValidateHostUsers(t *testing.T) {
 			}},
 		},
 	}, {
-		// It should ignore unsupported volumes with hostUsers=true.
 		name:    "hostUsers=true - unsupported volume",
 		success: true,
 		spec: &core.PodSpec{

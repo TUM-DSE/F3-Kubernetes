@@ -152,18 +152,27 @@ func TestLegacyRestStorageStrategies(t *testing.T) {
 	_, etcdserver, apiserverCfg, _ := newInstance(t)
 	defer etcdserver.Terminate(t)
 
-	storageProvider := corerest.LegacyRESTStorageProvider{
-		StorageFactory:       apiserverCfg.ExtraConfig.StorageFactory,
-		ProxyTransport:       apiserverCfg.ExtraConfig.ProxyTransport,
-		KubeletClientConfig:  apiserverCfg.ExtraConfig.KubeletClientConfig,
-		EventTTL:             apiserverCfg.ExtraConfig.EventTTL,
-		ServiceIPRange:       apiserverCfg.ExtraConfig.ServiceIPRange,
-		ServiceNodePortRange: apiserverCfg.ExtraConfig.ServiceNodePortRange,
-		LoopbackClientConfig: apiserverCfg.GenericConfig.LoopbackClientConfig,
-		Informers:            apiserverCfg.ExtraConfig.VersionedInformers,
+	storageProvider, err := corerest.New(corerest.Config{
+		GenericConfig: corerest.GenericConfig{
+			StorageFactory:       apiserverCfg.ExtraConfig.StorageFactory,
+			EventTTL:             apiserverCfg.ExtraConfig.EventTTL,
+			LoopbackClientConfig: apiserverCfg.GenericConfig.LoopbackClientConfig,
+			Informers:            apiserverCfg.ExtraConfig.VersionedInformers,
+		},
+		Proxy: corerest.ProxyConfig{
+			Transport:           apiserverCfg.ExtraConfig.ProxyTransport,
+			KubeletClientConfig: apiserverCfg.ExtraConfig.KubeletClientConfig,
+		},
+		Services: corerest.ServicesConfig{
+			ClusterIPRange: apiserverCfg.ExtraConfig.ServiceIPRange,
+			NodePortRange:  apiserverCfg.ExtraConfig.ServiceNodePortRange,
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error from REST storage: %v", err)
 	}
 
-	_, apiGroupInfo, err := storageProvider.NewLegacyRESTStorage(serverstorage.NewResourceConfig(), apiserverCfg.GenericConfig.RESTOptionsGetter)
+	apiGroupInfo, err := storageProvider.NewRESTStorage(serverstorage.NewResourceConfig(), apiserverCfg.GenericConfig.RESTOptionsGetter)
 	if err != nil {
 		t.Errorf("failed to create legacy REST storage: %v", err)
 	}

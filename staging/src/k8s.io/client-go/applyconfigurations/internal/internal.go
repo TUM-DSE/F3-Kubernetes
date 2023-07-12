@@ -695,6 +695,12 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: encodingVersion
       type:
         scalar: string
+    - name: servedVersions
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: associative
 - name: io.k8s.api.apiserverinternal.v1alpha1.StorageVersion
   map:
     fields:
@@ -4306,6 +4312,9 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: io.k8s.api.core.v1.ResourceRequirements
       default: {}
+    - name: restartPolicy
+      type:
+        scalar: string
     - name: securityContext
       type:
         namedType: io.k8s.api.core.v1.SecurityContext
@@ -4723,6 +4732,9 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: io.k8s.api.core.v1.ResourceRequirements
       default: {}
+    - name: restartPolicy
+      type:
+        scalar: string
     - name: securityContext
       type:
         namedType: io.k8s.api.core.v1.SecurityContext
@@ -6102,6 +6114,16 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: io.k8s.api.core.v1.ClaimSource
       default: {}
+- name: io.k8s.api.core.v1.PodResourceClaimStatus
+  map:
+    fields:
+    - name: name
+      type:
+        scalar: string
+      default: ""
+    - name: resourceClaimName
+      type:
+        scalar: string
 - name: io.k8s.api.core.v1.PodSchedulingGate
   map:
     fields:
@@ -6386,6 +6408,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: resize
       type:
         scalar: string
+    - name: resourceClaimStatuses
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.api.core.v1.PodResourceClaimStatus
+          elementRelationship: associative
+          keys:
+          - name
     - name: startTime
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
