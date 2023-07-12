@@ -41,6 +41,7 @@ func RegisterDefaults(scheme *runtime.Scheme) error {
 	scheme.AddTypeDefaultingFunc(&v1.NodeResourcesFitArgs{}, func(obj interface{}) { SetObjectDefaults_NodeResourcesFitArgs(obj.(*v1.NodeResourcesFitArgs)) })
 	scheme.AddTypeDefaultingFunc(&v1.PodTopologySpreadArgs{}, func(obj interface{}) { SetObjectDefaults_PodTopologySpreadArgs(obj.(*v1.PodTopologySpreadArgs)) })
 	scheme.AddTypeDefaultingFunc(&v1.VolumeBindingArgs{}, func(obj interface{}) { SetObjectDefaults_VolumeBindingArgs(obj.(*v1.VolumeBindingArgs)) })
+	scheme.AddTypeDefaultingFunc(&v1.FPGASchedulingArgs{}, func(obj interface{}) { SetObjectDefaults_FPGASchedulingArgs(obj.(*v1.FPGASchedulingArgs)) })
 	return nil
 }
 
@@ -70,4 +71,8 @@ func SetObjectDefaults_PodTopologySpreadArgs(in *v1.PodTopologySpreadArgs) {
 
 func SetObjectDefaults_VolumeBindingArgs(in *v1.VolumeBindingArgs) {
 	SetDefaults_VolumeBindingArgs(in)
+}
+
+func SetObjectDefaults_FPGASchedulingArgs(in *v1.FPGASchedulingArgs) {
+	SetDefaults_FPGASchedulingArgs(in)
 }

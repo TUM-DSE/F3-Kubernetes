@@ -87,6 +87,7 @@ var ExpandedPluginsV1beta3 = &config.Plugins{
 			{Name: names.NodeAffinity},
 			{Name: names.NodePorts},
 			{Name: names.NodeResourcesFit},
+			{Name: names.FPGAScheduling},
 			{Name: names.VolumeRestrictions},
 			{Name: names.EBSLimits},
 			{Name: names.GCEPDLimits},
@@ -96,7 +97,6 @@ var ExpandedPluginsV1beta3 = &config.Plugins{
 			{Name: names.VolumeZone},
 			{Name: names.PodTopologySpread},
 			{Name: names.InterPodAffinity},
-			{Name: names.FPGAScheduling},
 		},
 	},
 	PostFilter: config.PluginSet{
@@ -109,10 +109,10 @@ var ExpandedPluginsV1beta3 = &config.Plugins{
 			{Name: names.TaintToleration},
 			{Name: names.NodeAffinity},
 			{Name: names.NodeResourcesFit},
+			{Name: names.FPGAScheduling},
 			{Name: names.PodTopologySpread},
 			{Name: names.InterPodAffinity},
 			{Name: names.NodeResourcesBalancedAllocation},
-			{Name: names.FPGAScheduling},
 		},
 	},
 	Score: config.PluginSet{
@@ -282,6 +282,7 @@ var ExpandedPluginsV1 = &config.Plugins{
 			{Name: names.NodeAffinity},
 			{Name: names.NodePorts},
 			{Name: names.NodeResourcesFit},
+			{Name: names.FPGAScheduling},
 			{Name: names.VolumeRestrictions},
 			{Name: names.EBSLimits},
 			{Name: names.GCEPDLimits},
@@ -291,7 +292,6 @@ var ExpandedPluginsV1 = &config.Plugins{
 			{Name: names.VolumeZone},
 			{Name: names.PodTopologySpread},
 			{Name: names.InterPodAffinity},
-			{Name: names.FPGAScheduling},
 		},
 	},
 	PostFilter: config.PluginSet{

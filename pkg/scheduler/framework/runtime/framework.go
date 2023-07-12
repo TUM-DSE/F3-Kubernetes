@@ -276,6 +276,8 @@ func NewFramework(ctx context.Context, r Registry, profile *config.KubeScheduler
 	pluginConfig := make(map[string]runtime.Object, len(profile.PluginConfig))
 	for i := range profile.PluginConfig {
 		name := profile.PluginConfig[i].Name
+		// TODO temporary log
+		fmt.Println("plugin config for name", name)
 		if _, ok := pluginConfig[name]; ok {
 			return nil, fmt.Errorf("repeated config for plugin %s", name)
 		}

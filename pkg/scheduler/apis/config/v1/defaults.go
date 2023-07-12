@@ -242,3 +242,11 @@ func SetDefaults_NodeResourcesFitArgs(obj *configv1.NodeResourcesFitArgs) {
 		}
 	}
 }
+
+func SetDefaults_FPGASchedulingArgs(obj *configv1.FPGASchedulingArgs) {
+	if obj.BitstreamLocalityWeight == 0 && obj.RecentUsageTimeWeight == 0 && obj.RecentReconfigurationTimeWeight == 0 {
+		obj.BitstreamLocalityWeight = 1
+		obj.RecentUsageTimeWeight = 2
+		obj.RecentReconfigurationTimeWeight = 2
+	}
+}

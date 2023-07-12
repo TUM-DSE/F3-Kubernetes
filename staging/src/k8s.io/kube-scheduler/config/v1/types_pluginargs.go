@@ -80,6 +80,18 @@ type NodeResourcesFitArgs struct {
 	ScoringStrategy *ScoringStrategy `json:"scoringStrategy,omitempty"`
 }
 
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// FPGASchedulingArgs holds arguments used to configure the FPGAScheduling plugin.
+type FPGASchedulingArgs struct {
+	metav1.TypeMeta
+
+	RecentUsageTimeWeight           float64
+	RecentReconfigurationTimeWeight float64
+	BitstreamLocalityWeight         float64
+}
+
+
 // PodTopologySpreadConstraintsDefaulting defines how to set default constraints
 // for the PodTopologySpread plugin.
 type PodTopologySpreadConstraintsDefaulting string
