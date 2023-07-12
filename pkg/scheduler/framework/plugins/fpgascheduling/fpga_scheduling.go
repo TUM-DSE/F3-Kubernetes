@@ -292,7 +292,11 @@ func (pl *FPGAScheduling) Score(ctx context.Context, cycleState *framework.Cycle
 		return 0, framework.AsStatus(err)
 	}
 
-	return s.fpgaScore[nodeName], nil
+	score := s.fpgaScore[nodeName]
+
+	fmt.Printf("FPGAScheduling.Score invoked for pod %q on node %q with score %d\n", pod.Name, nodeName, score)
+
+	return score, nil
 }
 
 // NormalizeScore normalizes the score for each filteredNode.
