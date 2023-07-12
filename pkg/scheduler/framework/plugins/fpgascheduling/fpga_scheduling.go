@@ -16,6 +16,8 @@ limitations under the License.
 
 /*
 
+Update codegen with hack/update-codegen.sh
+
 How to run this locally (Docker Desktop):
 
 - Run docker build -t registry.k8s.io/kube-scheduler:v1.25.9 -f Dockerfile-scheduler .

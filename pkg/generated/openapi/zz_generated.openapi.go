@@ -1089,6 +1089,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"k8s.io/kube-scheduler/config/v1.Extender":                                                        schema_k8sio_kube_scheduler_config_v1_Extender(ref),
 		"k8s.io/kube-scheduler/config/v1.ExtenderManagedResource":                                         schema_k8sio_kube_scheduler_config_v1_ExtenderManagedResource(ref),
 		"k8s.io/kube-scheduler/config/v1.ExtenderTLSConfig":                                               schema_k8sio_kube_scheduler_config_v1_ExtenderTLSConfig(ref),
+		"k8s.io/kube-scheduler/config/v1.FPGASchedulingArgs":                                              schema_k8sio_kube_scheduler_config_v1_FPGASchedulingArgs(ref),
 		"k8s.io/kube-scheduler/config/v1.InterPodAffinityArgs":                                            schema_k8sio_kube_scheduler_config_v1_InterPodAffinityArgs(ref),
 		"k8s.io/kube-scheduler/config/v1.KubeSchedulerConfiguration":                                      schema_k8sio_kube_scheduler_config_v1_KubeSchedulerConfiguration(ref),
 		"k8s.io/kube-scheduler/config/v1.KubeSchedulerProfile":                                            schema_k8sio_kube_scheduler_config_v1_KubeSchedulerProfile(ref),
@@ -54477,6 +54478,49 @@ func schema_k8sio_kube_scheduler_config_v1_ExtenderTLSConfig(ref common.Referenc
 				},
 			},
 		},
+	}
+}
+
+func schema_k8sio_kube_scheduler_config_v1_FPGASchedulingArgs(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "FPGASchedulingArgs holds arguments used to configure the FPGAScheduling plugin.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"TypeMeta": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref("k8s.io/apimachinery/pkg/apis/meta/v1.TypeMeta"),
+						},
+					},
+					"RecentUsageTimeWeight": {
+						SchemaProps: spec.SchemaProps{
+							Default: 0,
+							Type:    []string{"number"},
+							Format:  "double",
+						},
+					},
+					"RecentReconfigurationTimeWeight": {
+						SchemaProps: spec.SchemaProps{
+							Default: 0,
+							Type:    []string{"number"},
+							Format:  "double",
+						},
+					},
+					"BitstreamLocalityWeight": {
+						SchemaProps: spec.SchemaProps{
+							Default: 0,
+							Type:    []string{"number"},
+							Format:  "double",
+						},
+					},
+				},
+				Required: []string{"TypeMeta", "RecentUsageTimeWeight", "RecentReconfigurationTimeWeight", "BitstreamLocalityWeight"},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/apimachinery/pkg/apis/meta/v1.TypeMeta"},
 	}
 }
 

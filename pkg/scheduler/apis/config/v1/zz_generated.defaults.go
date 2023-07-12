@@ -31,6 +31,7 @@ import (
 // All generated defaulters are covering - they call all nested defaulters.
 func RegisterDefaults(scheme *runtime.Scheme) error {
 	scheme.AddTypeDefaultingFunc(&v1.DefaultPreemptionArgs{}, func(obj interface{}) { SetObjectDefaults_DefaultPreemptionArgs(obj.(*v1.DefaultPreemptionArgs)) })
+	scheme.AddTypeDefaultingFunc(&v1.FPGASchedulingArgs{}, func(obj interface{}) { SetObjectDefaults_FPGASchedulingArgs(obj.(*v1.FPGASchedulingArgs)) })
 	scheme.AddTypeDefaultingFunc(&v1.InterPodAffinityArgs{}, func(obj interface{}) { SetObjectDefaults_InterPodAffinityArgs(obj.(*v1.InterPodAffinityArgs)) })
 	scheme.AddTypeDefaultingFunc(&v1.KubeSchedulerConfiguration{}, func(obj interface{}) {
 		SetObjectDefaults_KubeSchedulerConfiguration(obj.(*v1.KubeSchedulerConfiguration))
@@ -41,12 +42,15 @@ func RegisterDefaults(scheme *runtime.Scheme) error {
 	scheme.AddTypeDefaultingFunc(&v1.NodeResourcesFitArgs{}, func(obj interface{}) { SetObjectDefaults_NodeResourcesFitArgs(obj.(*v1.NodeResourcesFitArgs)) })
 	scheme.AddTypeDefaultingFunc(&v1.PodTopologySpreadArgs{}, func(obj interface{}) { SetObjectDefaults_PodTopologySpreadArgs(obj.(*v1.PodTopologySpreadArgs)) })
 	scheme.AddTypeDefaultingFunc(&v1.VolumeBindingArgs{}, func(obj interface{}) { SetObjectDefaults_VolumeBindingArgs(obj.(*v1.VolumeBindingArgs)) })
-	scheme.AddTypeDefaultingFunc(&v1.FPGASchedulingArgs{}, func(obj interface{}) { SetObjectDefaults_FPGASchedulingArgs(obj.(*v1.FPGASchedulingArgs)) })
 	return nil
 }
 
 func SetObjectDefaults_DefaultPreemptionArgs(in *v1.DefaultPreemptionArgs) {
 	SetDefaults_DefaultPreemptionArgs(in)
+}
+
+func SetObjectDefaults_FPGASchedulingArgs(in *v1.FPGASchedulingArgs) {
+	SetDefaults_FPGASchedulingArgs(in)
 }
 
 func SetObjectDefaults_InterPodAffinityArgs(in *v1.InterPodAffinityArgs) {
@@ -71,8 +75,4 @@ func SetObjectDefaults_PodTopologySpreadArgs(in *v1.PodTopologySpreadArgs) {
 
 func SetObjectDefaults_VolumeBindingArgs(in *v1.VolumeBindingArgs) {
 	SetDefaults_VolumeBindingArgs(in)
-}
-
-func SetObjectDefaults_FPGASchedulingArgs(in *v1.FPGASchedulingArgs) {
-	SetDefaults_FPGASchedulingArgs(in)
 }
