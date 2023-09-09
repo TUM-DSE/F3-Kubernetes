@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -342,7 +341,7 @@ const (
 	CoreDNSImageName = "coredns"
 
 	// CoreDNSVersion is the version of CoreDNS to be deployed if it is used
-	CoreDNSVersion = "v1.10.1"
+	CoreDNSVersion = "v1.11.1"
 
 	// ClusterConfigurationKind is the string kind value for the ClusterConfiguration struct
 	ClusterConfigurationKind = "ClusterConfiguration"
@@ -352,6 +351,9 @@ const (
 
 	// JoinConfigurationKind is the string kind value for the JoinConfiguration struct
 	JoinConfigurationKind = "JoinConfiguration"
+
+	// ResetConfigurationKind is the string kind value for the ResetConfiguration struct
+	ResetConfigurationKind = "ResetConfiguration"
 
 	// YAMLDocumentSeparator is the separator for YAML documents
 	// TODO: Find a better place for this constant
@@ -465,6 +467,7 @@ var (
 		26: "3.5.9-0",
 		27: "3.5.9-0",
 		28: "3.5.9-0",
+		29: "3.5.9-0",
 	}
 
 	// KubeadmCertsClusterRoleName sets the name for the ClusterRole that allows
@@ -579,9 +582,9 @@ func GetKubeletKubeConfigPath() string {
 
 // CreateTempDirForKubeadm is a function that creates a temporary directory under /etc/kubernetes/tmp (not using /tmp as that would potentially be dangerous)
 func CreateTempDirForKubeadm(kubernetesDir, dirName string) (string, error) {
-	tempDir := path.Join(KubernetesDir, TempDirForKubeadm)
+	tempDir := filepath.Join(KubernetesDir, TempDirForKubeadm)
 	if len(kubernetesDir) != 0 {
-		tempDir = path.Join(kubernetesDir, TempDirForKubeadm)
+		tempDir = filepath.Join(kubernetesDir, TempDirForKubeadm)
 	}
 
 	// creates target folder if not already exists
@@ -598,9 +601,9 @@ func CreateTempDirForKubeadm(kubernetesDir, dirName string) (string, error) {
 
 // CreateTimestampDirForKubeadm is a function that creates a temporary directory under /etc/kubernetes/tmp formatted with the current date
 func CreateTimestampDirForKubeadm(kubernetesDir, dirName string) (string, error) {
-	tempDir := path.Join(KubernetesDir, TempDirForKubeadm)
+	tempDir := filepath.Join(KubernetesDir, TempDirForKubeadm)
 	if len(kubernetesDir) != 0 {
-		tempDir = path.Join(kubernetesDir, TempDirForKubeadm)
+		tempDir = filepath.Join(kubernetesDir, TempDirForKubeadm)
 	}
 
 	// creates target folder if not already exists
@@ -609,7 +612,7 @@ func CreateTimestampDirForKubeadm(kubernetesDir, dirName string) (string, error)
 	}
 
 	timestampDirName := fmt.Sprintf("%s-%s", dirName, time.Now().Format("2006-01-02-15-04-05"))
-	timestampDir := path.Join(tempDir, timestampDirName)
+	timestampDir := filepath.Join(tempDir, timestampDirName)
 	if err := os.Mkdir(timestampDir, 0700); err != nil {
 		return "", errors.Wrap(err, "could not create timestamp directory")
 	}

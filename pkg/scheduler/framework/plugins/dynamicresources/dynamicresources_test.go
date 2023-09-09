@@ -330,13 +330,11 @@ func TestPlugin(t *testing.T) {
 			pod:    podWithClaimName,
 			claims: []*resourcev1alpha2.ResourceClaim{pendingDelayedClaim},
 			want: want{
-				filter: perNodeResult{
-					workerNode.Name: {
-						status: framework.AsStatus(fmt.Errorf(`look up resource class: resourceclass.resource.k8s.io "%s" not found`, className)),
-					},
+				prefilter: result{
+					status: framework.NewStatus(framework.UnschedulableAndUnresolvable, fmt.Sprintf("resource class %s does not exist", className)),
 				},
 				postfilter: result{
-					status: framework.NewStatus(framework.Unschedulable, `still not schedulable`),
+					status: framework.NewStatus(framework.Unschedulable, `no new claims to deallocate`),
 				},
 			},
 		},
@@ -762,7 +760,7 @@ func setup(t *testing.T, nodes []*v1.Node, claims []*resourcev1alpha2.ResourceCl
 	t.Helper()
 
 	tc := &testContext{}
-	logger, ctx := ktesting.NewTestContext(t)
+	_, ctx := ktesting.NewTestContext(t)
 	ctx, cancel := context.WithCancel(ctx)
 	t.Cleanup(cancel)
 	tc.ctx = ctx
@@ -782,7 +780,7 @@ func setup(t *testing.T, nodes []*v1.Node, claims []*resourcev1alpha2.ResourceCl
 		t.Fatal(err)
 	}
 
-	pl, err := NewWithLogger(logger, nil, fh, feature.Features{EnableDynamicResourceAllocation: true})
+	pl, err := New(nil, fh, feature.Features{EnableDynamicResourceAllocation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -885,7 +883,7 @@ func createReactor(tracker cgotesting.ObjectTracker) func(action cgotesting.Acti
 	}
 }
 
-func TestClaimChange(t *testing.T) {
+func Test_isSchedulableAfterClaimChange(t *testing.T) {
 	testcases := map[string]struct {
 		pod            *v1.Pod
 		claims         []*resourcev1alpha2.ResourceClaim
@@ -960,6 +958,7 @@ func TestClaimChange(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
+			logger, _ := ktesting.NewTestContext(t)
 			testCtx := setup(t, nil, tc.claims, nil, nil)
 			if claim, ok := tc.newObj.(*resourcev1alpha2.ResourceClaim); ok {
 				// Update the informer because the lister gets called and must have the claim.
@@ -970,13 +969,13 @@ func TestClaimChange(t *testing.T) {
 					require.NoError(t, store.Update(claim))
 				}
 			}
-			actualHint := testCtx.p.isSchedulableAfterClaimChange(tc.pod, tc.oldObj, tc.newObj)
+			actualHint := testCtx.p.isSchedulableAfterClaimChange(logger, tc.pod, tc.oldObj, tc.newObj)
 			require.Equal(t, tc.expectedHint, actualHint)
 		})
 	}
 }
 
-func TestPodSchedulingContextChange(t *testing.T) {
+func Test_isSchedulableAfterPodSchedulingContextChange(t *testing.T) {
 	testcases := map[string]struct {
 		pod            *v1.Pod
 		schedulings    []*resourcev1alpha2.PodSchedulingContext
@@ -1090,8 +1089,9 @@ func TestPodSchedulingContextChange(t *testing.T) {
 		tc := tc
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
+			logger, _ := ktesting.NewTestContext(t)
 			testCtx := setup(t, nil, tc.claims, nil, tc.schedulings)
-			actualHint := testCtx.p.isSchedulableAfterPodSchedulingContextChange(tc.pod, tc.oldObj, tc.newObj)
+			actualHint := testCtx.p.isSchedulableAfterPodSchedulingContextChange(logger, tc.pod, tc.oldObj, tc.newObj)
 			require.Equal(t, tc.expectedHint, actualHint)
 		})
 	}

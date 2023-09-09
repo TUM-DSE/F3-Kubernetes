@@ -67,9 +67,9 @@ var _ = ginkgo.Describe("[sig-node] DRA [Feature:DynamicResourceAllocation]", fu
 			ginkgo.By("the driver is running")
 		})
 
-		ginkgo.It("must retry NodePrepareResource", func(ctx context.Context) {
+		ginkgo.It("must retry NodePrepareResources", func(ctx context.Context) {
 			// We have exactly one host.
-			m := MethodInstance{driver.Nodenames()[0], NodePrepareResourceMethod}
+			m := MethodInstance{driver.Nodenames()[0], NodePrepareResourcesMethod}
 
 			driver.Fail(m, true)
 
@@ -79,10 +79,10 @@ var _ = ginkgo.Describe("[sig-node] DRA [Feature:DynamicResourceAllocation]", fu
 
 			b.create(ctx, parameters, pod, template)
 
-			ginkgo.By("wait for NodePrepareResource call")
+			ginkgo.By("wait for NodePrepareResources call")
 			gomega.Eventually(ctx, func(ctx context.Context) error {
 				if driver.CallCount(m) == 0 {
-					return errors.New("NodePrepareResource not called yet")
+					return errors.New("NodePrepareResources not called yet")
 				}
 				return nil
 			}).WithTimeout(podStartTimeout).Should(gomega.Succeed())
@@ -93,21 +93,36 @@ var _ = ginkgo.Describe("[sig-node] DRA [Feature:DynamicResourceAllocation]", fu
 			err := e2epod.WaitForPodNameRunningInNamespace(ctx, f.ClientSet, pod.Name, pod.Namespace)
 			framework.ExpectNoError(err, "start pod with inline resource claim")
 			if driver.CallCount(m) == callCount {
-				framework.Fail("NodePrepareResource should have been called again")
+				framework.Fail("NodePrepareResources should have been called again")
 			}
 		})
 
 		ginkgo.It("must not run a pod if a claim is not reserved for it", func(ctx context.Context) {
-			parameters := b.parameters()
-			claim := b.externalClaim(resourcev1alpha2.AllocationModeImmediate)
+			// Pretend that the resource is allocated and reserved for some other entity.
+			// Until the resourceclaim controller learns to remove reservations for
+			// arbitrary types we can simply fake somthing here.
+			claim := b.externalClaim(resourcev1alpha2.AllocationModeWaitForFirstConsumer)
+			b.create(ctx, claim)
+			claim, err := f.ClientSet.ResourceV1alpha2().ResourceClaims(f.Namespace.Name).Get(ctx, claim.Name, metav1.GetOptions{})
+			framework.ExpectNoError(err, "get claim")
+			claim.Status.Allocation = &resourcev1alpha2.AllocationResult{}
+			claim.Status.DriverName = driver.Name
+			claim.Status.ReservedFor = append(claim.Status.ReservedFor, resourcev1alpha2.ResourceClaimConsumerReference{
+				APIGroup: "example.com",
+				Resource: "some",
+				Name:     "thing",
+				UID:      "12345",
+			})
+			_, err = f.ClientSet.ResourceV1alpha2().ResourceClaims(f.Namespace.Name).UpdateStatus(ctx, claim, metav1.UpdateOptions{})
+			framework.ExpectNoError(err, "update claim")
+
 			pod := b.podExternal()
 
 			// This bypasses scheduling and therefore the pod gets
 			// to run on the node although it never gets added to
 			// the `ReservedFor` field of the claim.
 			pod.Spec.NodeName = nodes.NodeNames[0]
-
-			b.create(ctx, parameters, claim, pod)
+			b.create(ctx, pod)
 
 			gomega.Consistently(func() error {
 				testPod, err := b.f.ClientSet.CoreV1().Pods(pod.Namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
@@ -178,7 +193,7 @@ var _ = ginkgo.Describe("[sig-node] DRA [Feature:DynamicResourceAllocation]", fu
 	})
 
 	ginkgo.Context("cluster", func() {
-		nodes := NewNodes(f, 1, 4)
+		nodes := NewNodes(f, 1, 1)
 		driver := NewDriver(f, nodes, networkResources)
 		b := newBuilder(f, driver)
 
@@ -189,6 +204,68 @@ var _ = ginkgo.Describe("[sig-node] DRA [Feature:DynamicResourceAllocation]", fu
 			pod.Spec.ResourceClaims[0].Name = strings.Repeat("c", 63)
 			pod.Spec.Containers[0].Resources.Claims[0].Name = pod.Spec.ResourceClaims[0].Name
 			b.create(ctx, parameters, template, pod)
+
+			b.testPod(ctx, f.ClientSet, pod)
+		})
+
+		ginkgo.It("retries pod scheduling after creating resource class", func(ctx context.Context) {
+			parameters := b.parameters()
+			pod, template := b.podInline(resourcev1alpha2.AllocationModeWaitForFirstConsumer)
+			class, err := f.ClientSet.ResourceV1alpha2().ResourceClasses().Get(ctx, template.Spec.Spec.ResourceClassName, metav1.GetOptions{})
+			framework.ExpectNoError(err)
+			template.Spec.Spec.ResourceClassName += "-b"
+			b.create(ctx, parameters, template, pod)
+
+			// There's no way to be sure that the scheduler has checked the pod.
+			// But if we sleep for a short while, it's likely and if there are any
+			// bugs that prevent the scheduler from handling creation of the class,
+			// those bugs should show up as test flakes.
+			time.Sleep(time.Second)
+
+			class.UID = ""
+			class.ResourceVersion = ""
+			class.Name = template.Spec.Spec.ResourceClassName
+			b.create(ctx, class)
+
+			b.testPod(ctx, f.ClientSet, pod)
+		})
+
+		ginkgo.It("retries pod scheduling after updating resource class", func(ctx context.Context) {
+			parameters := b.parameters()
+			pod, template := b.podInline(resourcev1alpha2.AllocationModeWaitForFirstConsumer)
+
+			// First modify the class so that it matches no nodes.
+			class, err := f.ClientSet.ResourceV1alpha2().ResourceClasses().Get(ctx, template.Spec.Spec.ResourceClassName, metav1.GetOptions{})
+			framework.ExpectNoError(err)
+			class.SuitableNodes = &v1.NodeSelector{
+				NodeSelectorTerms: []v1.NodeSelectorTerm{
+					{
+						MatchExpressions: []v1.NodeSelectorRequirement{
+							{
+								Key:      "no-such-label",
+								Operator: v1.NodeSelectorOpIn,
+								Values:   []string{"no-such-value"},
+							},
+						},
+					},
+				},
+			}
+			class, err = f.ClientSet.ResourceV1alpha2().ResourceClasses().Update(ctx, class, metav1.UpdateOptions{})
+			framework.ExpectNoError(err)
+
+			// Now create the pod.
+			b.create(ctx, parameters, template, pod)
+
+			// There's no way to be sure that the scheduler has checked the pod.
+			// But if we sleep for a short while, it's likely and if there are any
+			// bugs that prevent the scheduler from handling updates of the class,
+			// those bugs should show up as test flakes.
+			time.Sleep(time.Second)
+
+			// Unblock the pod.
+			class.SuitableNodes = nil
+			_, err = f.ClientSet.ResourceV1alpha2().ResourceClasses().Update(ctx, class, metav1.UpdateOptions{})
+			framework.ExpectNoError(err)
 
 			b.testPod(ctx, f.ClientSet, pod)
 		})
@@ -210,10 +287,14 @@ var _ = ginkgo.Describe("[sig-node] DRA [Feature:DynamicResourceAllocation]", fu
 			framework.ExpectNoError(err)
 			framework.ExpectNoError(e2epod.WaitForPodRunningInNamespace(ctx, f.ClientSet, pod))
 		})
+	})
+
+	ginkgo.Context("cluster", func() {
+		nodes := NewNodes(f, 1, 4)
 
 		// claimTests tries out several different combinations of pods with
 		// claims, both inline and external.
-		claimTests := func(allocationMode resourcev1alpha2.AllocationMode) {
+		claimTests := func(b *builder, driver *Driver, allocationMode resourcev1alpha2.AllocationMode) {
 			ginkgo.It("supports simple pod referencing inline resource claim", func(ctx context.Context) {
 				parameters := b.parameters()
 				pod, template := b.podInline(allocationMode)
@@ -322,35 +403,75 @@ var _ = ginkgo.Describe("[sig-node] DRA [Feature:DynamicResourceAllocation]", fu
 				}).WithTimeout(f.Timeouts.PodStartSlow).Should(gomega.HaveField("Status.ContainerStatuses", gomega.ContainElements(gomega.HaveField("RestartCount", gomega.BeNumerically(">=", 2)))))
 				gomega.Expect(driver.Controller.GetNumAllocations()).To(gomega.Equal(int64(1)), "number of allocations")
 			})
+
+			ginkgo.It("must deallocate after use when using delayed allocation", func(ctx context.Context) {
+				parameters := b.parameters()
+				pod := b.podExternal()
+				claim := b.externalClaim(resourcev1alpha2.AllocationModeWaitForFirstConsumer)
+				b.create(ctx, parameters, claim, pod)
+
+				gomega.Eventually(ctx, func(ctx context.Context) (*resourcev1alpha2.ResourceClaim, error) {
+					return b.f.ClientSet.ResourceV1alpha2().ResourceClaims(b.f.Namespace.Name).Get(ctx, claim.Name, metav1.GetOptions{})
+				}).WithTimeout(f.Timeouts.PodDelete).ShouldNot(gomega.HaveField("Status.Allocation", (*resourcev1alpha2.AllocationResult)(nil)))
+
+				b.testPod(ctx, f.ClientSet, pod)
+
+				ginkgo.By(fmt.Sprintf("deleting pod %s", klog.KObj(pod)))
+				framework.ExpectNoError(b.f.ClientSet.CoreV1().Pods(b.f.Namespace.Name).Delete(ctx, pod.Name, metav1.DeleteOptions{}))
+
+				ginkgo.By("waiting for claim to get deallocated")
+				gomega.Eventually(ctx, func(ctx context.Context) (*resourcev1alpha2.ResourceClaim, error) {
+					return b.f.ClientSet.ResourceV1alpha2().ResourceClaims(b.f.Namespace.Name).Get(ctx, claim.Name, metav1.GetOptions{})
+				}).WithTimeout(f.Timeouts.PodDelete).Should(gomega.HaveField("Status.Allocation", (*resourcev1alpha2.AllocationResult)(nil)))
+			})
+
+			// kube-controller-manager can trigger delayed allocation for pods where the
+			// node name was already selected when creating the pod. For immediate
+			// allocation, the creator has to ensure that the node matches the claims.
+			// This does not work for resource claim templates and only isn't
+			// a problem here because the resource is network-attached and available
+			// on all nodes.
+
+			ginkgo.It("supports scheduled pod referencing inline resource claim", func(ctx context.Context) {
+				parameters := b.parameters()
+				pod, template := b.podInline(allocationMode)
+				pod.Spec.NodeName = nodes.NodeNames[0]
+				b.create(ctx, parameters, pod, template)
+
+				b.testPod(ctx, f.ClientSet, pod)
+			})
+
+			ginkgo.It("supports scheduled pod referencing external resource claim", func(ctx context.Context) {
+				parameters := b.parameters()
+				claim := b.externalClaim(allocationMode)
+				pod := b.podExternal()
+				pod.Spec.NodeName = nodes.NodeNames[0]
+				b.create(ctx, parameters, claim, pod)
+
+				b.testPod(ctx, f.ClientSet, pod)
+			})
 		}
 
-		ginkgo.Context("with delayed allocation", func() {
-			claimTests(resourcev1alpha2.AllocationModeWaitForFirstConsumer)
+		ginkgo.Context("with delayed allocation and setting ReservedFor", func() {
+			driver := NewDriver(f, nodes, networkResources)
+			b := newBuilder(f, driver)
+			claimTests(b, driver, resourcev1alpha2.AllocationModeWaitForFirstConsumer)
+		})
+
+		ginkgo.Context("with delayed allocation and not setting ReservedFor", func() {
+			driver := NewDriver(f, nodes, func() app.Resources {
+				resources := networkResources()
+				resources.DontSetReservedFor = true
+				return resources
+			})
+			b := newBuilder(f, driver)
+			claimTests(b, driver, resourcev1alpha2.AllocationModeWaitForFirstConsumer)
 		})
 
 		ginkgo.Context("with immediate allocation", func() {
-			claimTests(resourcev1alpha2.AllocationModeImmediate)
-		})
-
-		ginkgo.It("must deallocate after use when using delayed allocation", func(ctx context.Context) {
-			parameters := b.parameters()
-			pod := b.podExternal()
-			claim := b.externalClaim(resourcev1alpha2.AllocationModeWaitForFirstConsumer)
-			b.create(ctx, parameters, claim, pod)
-
-			gomega.Eventually(ctx, func(ctx context.Context) (*resourcev1alpha2.ResourceClaim, error) {
-				return b.f.ClientSet.ResourceV1alpha2().ResourceClaims(b.f.Namespace.Name).Get(ctx, claim.Name, metav1.GetOptions{})
-			}).WithTimeout(f.Timeouts.PodDelete).ShouldNot(gomega.HaveField("Status.Allocation", (*resourcev1alpha2.AllocationResult)(nil)))
-
-			b.testPod(ctx, f.ClientSet, pod)
-
-			ginkgo.By(fmt.Sprintf("deleting pod %s", klog.KObj(pod)))
-			framework.ExpectNoError(b.f.ClientSet.CoreV1().Pods(b.f.Namespace.Name).Delete(ctx, pod.Name, metav1.DeleteOptions{}))
-
-			ginkgo.By("waiting for claim to get deallocated")
-			gomega.Eventually(ctx, func(ctx context.Context) (*resourcev1alpha2.ResourceClaim, error) {
-				return b.f.ClientSet.ResourceV1alpha2().ResourceClaims(b.f.Namespace.Name).Get(ctx, claim.Name, metav1.GetOptions{})
-			}).WithTimeout(f.Timeouts.PodDelete).Should(gomega.HaveField("Status.Allocation", (*resourcev1alpha2.AllocationResult)(nil)))
+			driver := NewDriver(f, nodes, networkResources)
+			b := newBuilder(f, driver)
+			claimTests(b, driver, resourcev1alpha2.AllocationModeImmediate)
 		})
 	})
 
@@ -587,50 +708,70 @@ var _ = ginkgo.Describe("[sig-node] DRA [Feature:DynamicResourceAllocation]", fu
 				if pod1.Spec.NodeName == "" {
 					framework.Fail("first pod should be running on node, was not scheduled")
 				}
-				framework.ExpectNotEqual(pod1.Spec.NodeName, node, "first pod should run on different node than second one")
-				framework.ExpectEqual(driver.Controller.GetNumDeallocations(), int64(1), "number of deallocations")
+				gomega.Expect(pod1.Spec.NodeName).ToNot(gomega.Equal(node), "first pod should run on different node than second one")
+				gomega.Expect(driver.Controller.GetNumDeallocations()).To(gomega.Equal(int64(1)), "number of deallocations")
 			})
 		})
 	})
 
-	ginkgo.Context("multiple drivers", func() {
+	multipleDrivers := func(nodeV1alpha2, nodeV1alpha3 bool) {
 		nodes := NewNodes(f, 1, 4)
 		driver1 := NewDriver(f, nodes, func() app.Resources {
 			return app.Resources{
 				NodeLocal:      true,
-				MaxAllocations: 1,
+				MaxAllocations: 2,
 				Nodes:          nodes.NodeNames,
 			}
 		})
+		driver1.NodeV1alpha2 = nodeV1alpha2
+		driver1.NodeV1alpha3 = nodeV1alpha3
 		b1 := newBuilder(f, driver1)
 
 		driver2 := NewDriver(f, nodes, func() app.Resources {
 			return app.Resources{
 				NodeLocal:      true,
-				MaxAllocations: 1,
+				MaxAllocations: 2,
 				Nodes:          nodes.NodeNames,
 			}
 		})
 		driver2.NameSuffix = "-other"
+		driver2.NodeV1alpha2 = nodeV1alpha2
+		driver2.NodeV1alpha3 = nodeV1alpha3
 		b2 := newBuilder(f, driver2)
 
 		ginkgo.It("work", func(ctx context.Context) {
 			parameters1 := b1.parameters()
 			parameters2 := b2.parameters()
 			claim1 := b1.externalClaim(resourcev1alpha2.AllocationModeWaitForFirstConsumer)
+			claim1b := b1.externalClaim(resourcev1alpha2.AllocationModeWaitForFirstConsumer)
 			claim2 := b2.externalClaim(resourcev1alpha2.AllocationModeWaitForFirstConsumer)
+			claim2b := b2.externalClaim(resourcev1alpha2.AllocationModeWaitForFirstConsumer)
 			pod := b1.podExternal()
-			pod.Spec.ResourceClaims = append(pod.Spec.ResourceClaims,
-				v1.PodResourceClaim{
-					Name: "claim2",
-					Source: v1.ClaimSource{
-						ResourceClaimName: &claim2.Name,
+			for i, claim := range []*resourcev1alpha2.ResourceClaim{claim1b, claim2, claim2b} {
+				claim := claim
+				pod.Spec.ResourceClaims = append(pod.Spec.ResourceClaims,
+					v1.PodResourceClaim{
+						Name: fmt.Sprintf("claim%d", i+1),
+						Source: v1.ClaimSource{
+							ResourceClaimName: &claim.Name,
+						},
 					},
-				},
-			)
-			b1.create(ctx, parameters1, parameters2, claim1, claim2, pod)
+				)
+			}
+			b1.create(ctx, parameters1, parameters2, claim1, claim1b, claim2, claim2b, pod)
 			b1.testPod(ctx, f.ClientSet, pod)
 		})
+	}
+	multipleDriversContext := func(prefix string, nodeV1alpha2, nodeV1alpha3 bool) {
+		ginkgo.Context(prefix, func() {
+			multipleDrivers(nodeV1alpha2, nodeV1alpha3)
+		})
+	}
+
+	ginkgo.Context("multiple drivers", func() {
+		multipleDriversContext("using only drapbv1alpha2", true, false)
+		multipleDriversContext("using only drapbv1alpha3", false, true)
+		multipleDriversContext("using both drapbv1alpha2 and drapbv1alpha3", true, true)
 	})
 })
 

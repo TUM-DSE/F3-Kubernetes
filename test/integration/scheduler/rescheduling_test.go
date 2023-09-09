@@ -23,6 +23,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/scheduler"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	st "k8s.io/kubernetes/pkg/scheduler/testing"
@@ -69,7 +70,7 @@ func (rp *ReservePlugin) EventsToRegister() []framework.ClusterEventWithHint {
 	return []framework.ClusterEventWithHint{
 		{
 			Event: framework.ClusterEvent{Resource: framework.Node, ActionType: framework.Add},
-			QueueingHintFn: func(pod *v1.Pod, oldObj, newObj interface{}) framework.QueueingHint {
+			QueueingHintFn: func(logger klog.Logger, pod *v1.Pod, oldObj, newObj interface{}) framework.QueueingHint {
 				return framework.QueueImmediately
 			},
 		},
@@ -106,7 +107,7 @@ func (pp *PermitPlugin) EventsToRegister() []framework.ClusterEventWithHint {
 	return []framework.ClusterEventWithHint{
 		{
 			Event: framework.ClusterEvent{Resource: framework.Node, ActionType: framework.Add},
-			QueueingHintFn: func(pod *v1.Pod, oldObj, newObj interface{}) framework.QueueingHint {
+			QueueingHintFn: func(logger klog.Logger, pod *v1.Pod, oldObj, newObj interface{}) framework.QueueingHint {
 				return framework.QueueImmediately
 			},
 		},
@@ -217,7 +218,8 @@ func TestReScheduling(t *testing.T) {
 
 			// The first time for scheduling, pod is error or unschedulable, controlled by wantFirstSchedulingError
 			if test.wantFirstSchedulingError {
-				if err = wait.Poll(10*time.Millisecond, 30*time.Second, testutils.PodSchedulingError(testCtx.ClientSet, pod.Namespace, pod.Name)); err != nil {
+				if err = wait.PollUntilContextTimeout(testCtx.Ctx, 10*time.Millisecond, 30*time.Second, false,
+					testutils.PodSchedulingError(testCtx.ClientSet, pod.Namespace, pod.Name)); err != nil {
 					t.Errorf("Expected a scheduling error, but got: %v", err)
 				}
 			} else {
@@ -237,7 +239,8 @@ func TestReScheduling(t *testing.T) {
 					t.Errorf("Didn't expect the pod to be unschedulable. error: %v", err)
 				}
 			} else if test.wantError {
-				if err = wait.Poll(10*time.Millisecond, 30*time.Second, testutils.PodSchedulingError(testCtx.ClientSet, pod.Namespace, pod.Name)); err != nil {
+				if err = wait.PollUntilContextTimeout(testCtx.Ctx, 10*time.Millisecond, 30*time.Second, false,
+					testutils.PodSchedulingError(testCtx.ClientSet, pod.Namespace, pod.Name)); err != nil {
 					t.Errorf("Expected a scheduling error, but got: %v", err)
 				}
 			} else {

@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
-	"strconv"
 	"sync"
 	"time"
 
@@ -725,14 +724,14 @@ func shouldDelegateList(opts storage.ListOptions) bool {
 	resourceVersion := opts.ResourceVersion
 	pred := opts.Predicate
 	match := opts.ResourceVersionMatch
-	pagingEnabled := utilfeature.DefaultFeatureGate.Enabled(features.APIListChunking)
+	consistentListFromCacheEnabled := utilfeature.DefaultFeatureGate.Enabled(features.ConsistentListFromCache)
 
-	// Serve consistent reads from storage
-	consistentReadFromStorage := resourceVersion == ""
+	// Serve consistent reads from storage if ConsistentListFromCache is disabled
+	consistentReadFromStorage := resourceVersion == "" && !consistentListFromCacheEnabled
 	// Watch cache doesn't support continuations, so serve them from etcd.
-	hasContinuation := pagingEnabled && len(pred.Continue) > 0
+	hasContinuation := len(pred.Continue) > 0
 	// Serve paginated requests about revision "0" from watch cache to avoid overwhelming etcd.
-	hasLimit := pagingEnabled && pred.Limit > 0 && resourceVersion != "0"
+	hasLimit := pred.Limit > 0 && resourceVersion != "0"
 	// Watch cache only supports ResourceVersionMatchNotOlderThan (default).
 	unsupportedMatch := match != "" && match != metav1.ResourceVersionMatchNotOlderThan
 
@@ -762,18 +761,20 @@ func (c *Cacher) GetList(ctx context.Context, key string, opts storage.ListOptio
 		return c.storage.GetList(ctx, key, opts, listObj)
 	}
 
-	// If resourceVersion is specified, serve it from cache.
-	// It's guaranteed that the returned value is at least that
-	// fresh as the given resourceVersion.
 	listRV, err := c.versioner.ParseResourceVersion(resourceVersion)
 	if err != nil {
 		return err
 	}
-
 	if listRV == 0 && !c.ready.check() {
 		// If Cacher is not yet initialized and we don't require any specific
 		// minimal resource version, simply forward the request to storage.
 		return c.storage.GetList(ctx, key, opts, listObj)
+	}
+	if listRV == 0 && utilfeature.DefaultFeatureGate.Enabled(features.ConsistentListFromCache) {
+		listRV, err = storage.GetCurrentResourceVersionFromStorage(ctx, c.storage, c.newListFunc, c.resourcePrefix, c.objectType.String())
+		if err != nil {
+			return err
+		}
 	}
 
 	ctx, span := tracing.Start(ctx, "cacher list",
@@ -1246,42 +1247,6 @@ func (c *Cacher) LastSyncResourceVersion() (uint64, error) {
 	return c.versioner.ParseResourceVersion(resourceVersion)
 }
 
-// getCurrentResourceVersionFromStorage gets the current resource version from the underlying storage engine.
-// this method issues an empty list request and reads only the ResourceVersion from the object metadata
-func (c *Cacher) getCurrentResourceVersionFromStorage(ctx context.Context) (uint64, error) {
-	if c.newListFunc == nil {
-		return 0, fmt.Errorf("newListFunction wasn't provided for %v", c.objectType)
-	}
-	emptyList := c.newListFunc()
-	pred := storage.SelectionPredicate{
-		Label: labels.Everything(),
-		Field: fields.Everything(),
-		Limit: 1, // just in case we actually hit something
-	}
-
-	err := c.storage.GetList(ctx, c.resourcePrefix, storage.ListOptions{Predicate: pred}, emptyList)
-	if err != nil {
-		return 0, err
-	}
-	emptyListAccessor, err := meta.ListAccessor(emptyList)
-	if err != nil {
-		return 0, err
-	}
-	if emptyListAccessor == nil {
-		return 0, fmt.Errorf("unable to extract a list accessor from %T", emptyList)
-	}
-
-	currentResourceVersion, err := strconv.Atoi(emptyListAccessor.GetResourceVersion())
-	if err != nil {
-		return 0, err
-	}
-
-	if currentResourceVersion == 0 {
-		return 0, fmt.Errorf("the current resource version must be greater than 0")
-	}
-	return uint64(currentResourceVersion), nil
-}
-
 // getBookmarkAfterResourceVersionLockedFunc returns a function that
 // spits a ResourceVersion after which the bookmark event will be delivered.
 //
@@ -1315,7 +1280,7 @@ func (c *Cacher) getStartResourceVersionForWatchLockedFunc(ctx context.Context, 
 func (c *Cacher) getCommonResourceVersionLockedFunc(ctx context.Context, parsedWatchResourceVersion uint64, opts storage.ListOptions) (func() uint64, error) {
 	switch {
 	case len(opts.ResourceVersion) == 0:
-		rv, err := c.getCurrentResourceVersionFromStorage(ctx)
+		rv, err := storage.GetCurrentResourceVersionFromStorage(ctx, c.storage, c.newListFunc, c.resourcePrefix, c.objectType.String())
 		if err != nil {
 			return nil, err
 		}

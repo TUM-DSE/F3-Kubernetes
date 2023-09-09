@@ -50,6 +50,14 @@ import (
 type Controller interface {
 	// Run starts the controller.
 	Run(workers int)
+
+	// SetReservedFor can be used to disable adding the Pod which
+	// triggered allocation to the status.reservedFor. Normally,
+	// DRA drivers should always do that, so it's the default.
+	// But nothing in the protocol between the scheduler and
+	// a driver requires it, so at least for testing the control
+	// plane components it is useful to disable it.
+	SetReservedFor(enabled bool)
 }
 
 // Driver provides the actual allocation and deallocation operations.
@@ -146,6 +154,7 @@ type controller struct {
 	name                string
 	finalizer           string
 	driver              Driver
+	setReservedFor      bool
 	kubeClient          kubernetes.Interface
 	queue               workqueue.RateLimitingInterface
 	eventRecorder       record.EventRecorder
@@ -207,6 +216,7 @@ func New(
 		name:                name,
 		finalizer:           name + "/deletion-protection",
 		driver:              driver,
+		setReservedFor:      true,
 		kubeClient:          kubeClient,
 		rcLister:            rcInformer.Lister(),
 		rcSynced:            rcInformer.Informer().HasSynced,
@@ -232,6 +242,10 @@ func New(
 	return ctrl
 }
 
+func (ctrl *controller) SetReservedFor(enabled bool) {
+	ctrl.setReservedFor = enabled
+}
+
 func resourceEventHandlerFuncs(logger *klog.Logger, ctrl *controller) cache.ResourceEventHandlerFuncs {
 	return cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
@@ -249,28 +263,34 @@ const (
 	schedulingCtxKeyPrefix = "schedulingCtx:"
 )
 
-func (ctrl *controller) add(logger *klog.Logger, obj interface{}) {
-	if logger != nil {
-		logger.Info("new object", "content", prettyPrint(obj))
+func (ctrl *controller) add(loggerV6 *klog.Logger, obj interface{}) {
+	var logger klog.Logger
+	if loggerV6 != nil {
+		logger = loggerV6.WithValues("object", prettyPrint(obj))
+	} else {
+		logger = ctrl.logger.V(5)
 	}
-	ctrl.addNewOrUpdated("Adding new work item", obj)
+	ctrl.addNewOrUpdated(logger, "Adding new work item", obj)
 }
 
-func (ctrl *controller) update(logger *klog.Logger, oldObj, newObj interface{}) {
-	if logger != nil {
+func (ctrl *controller) update(loggerV6 *klog.Logger, oldObj, newObj interface{}) {
+	var logger klog.Logger
+	if loggerV6 != nil {
 		diff := cmp.Diff(oldObj, newObj)
-		logger.Info("updated object", "content", prettyPrint(newObj), "diff", diff)
+		logger = loggerV6.WithValues("object", prettyPrint(newObj), "diff", diff)
+	} else {
+		logger = ctrl.logger.V(5)
 	}
-	ctrl.addNewOrUpdated("Adding updated work item", newObj)
+	ctrl.addNewOrUpdated(logger, "Adding updated work item", newObj)
 }
 
-func (ctrl *controller) addNewOrUpdated(msg string, obj interface{}) {
+func (ctrl *controller) addNewOrUpdated(loggerV klog.Logger, msg string, obj interface{}) {
 	objKey, err := getKey(obj)
 	if err != nil {
-		ctrl.logger.Error(err, "Failed to get key", "obj", obj)
+		loggerV.Error(err, "Failed to get key", "obj", obj)
 		return
 	}
-	ctrl.logger.V(5).Info(msg, "key", objKey)
+	loggerV.Info(msg, "key", objKey)
 	ctrl.queue.Add(objKey)
 }
 
@@ -609,7 +629,7 @@ func (ctrl *controller) allocateClaims(ctx context.Context, claims []*ClaimAlloc
 		claim := claimAllocation.Claim.DeepCopy()
 		claim.Status.Allocation = claimAllocation.Allocation
 		claim.Status.DriverName = ctrl.name
-		if selectedUser != nil {
+		if selectedUser != nil && ctrl.setReservedFor {
 			claim.Status.ReservedFor = append(claim.Status.ReservedFor, *selectedUser)
 		}
 		logger.V(6).Info("Updating claim after allocation", "claim", claim)
@@ -760,16 +780,20 @@ func (ctrl *controller) syncPodSchedulingContexts(ctx context.Context, schedulin
 
 			ctrl.allocateClaims(ctx, claims, selectedNode, selectedUser)
 
-			allErrorsStr := "allocation of one or more pod claims failed."
-			allocationFailed := false
+			var allErrors []error
 			for _, delayed := range claims {
 				if delayed.Error != nil {
-					allErrorsStr = fmt.Sprintf("%s Claim %s: %s.", allErrorsStr, delayed.Claim.Name, delayed.Error)
-					allocationFailed = true
+					if strings.Contains(delayed.Error.Error(), delayed.Claim.Name) {
+						// Avoid adding redundant information.
+						allErrors = append(allErrors, delayed.Error)
+					} else {
+						// Include claim name, it's not in the underlying error.
+						allErrors = append(allErrors, fmt.Errorf("claim %s: %v", delayed.Claim.Name, delayed.Error))
+					}
 				}
 			}
-			if allocationFailed {
-				return fmt.Errorf(allErrorsStr)
+			if len(allErrors) > 0 {
+				return errors.Join(allErrors...)
 			}
 		}
 	}

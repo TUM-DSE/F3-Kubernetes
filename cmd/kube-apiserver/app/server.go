@@ -35,7 +35,6 @@ import (
 	utilnet "k8s.io/apimachinery/pkg/util/net"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apiserver/pkg/admission"
-	"k8s.io/apiserver/pkg/cel/openapi/resolver"
 	genericapifilters "k8s.io/apiserver/pkg/endpoints/filters"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	"k8s.io/apiserver/pkg/server/egressselector"
@@ -45,9 +44,9 @@ import (
 	"k8s.io/client-go/dynamic"
 	clientgoinformers "k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
-	k8sscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/keyutil"
+	cloudprovider "k8s.io/cloud-provider"
 	cliflag "k8s.io/component-base/cli/flag"
 	"k8s.io/component-base/cli/globalflag"
 	"k8s.io/component-base/logs"
@@ -59,6 +58,7 @@ import (
 	"k8s.io/klog/v2"
 	aggregatorapiserver "k8s.io/kube-aggregator/pkg/apiserver"
 	aggregatorscheme "k8s.io/kube-aggregator/pkg/apiserver/scheme"
+	"k8s.io/kubernetes/pkg/features"
 
 	"k8s.io/kubernetes/cmd/kube-apiserver/app/options"
 	"k8s.io/kubernetes/pkg/api/legacyscheme"
@@ -68,6 +68,7 @@ import (
 	"k8s.io/kubernetes/pkg/controlplane/reconcilers"
 	generatedopenapi "k8s.io/kubernetes/pkg/generated/openapi"
 	kubeapiserveradmission "k8s.io/kubernetes/pkg/kubeapiserver/admission"
+	kubeoptions "k8s.io/kubernetes/pkg/kubeapiserver/options"
 	"k8s.io/kubernetes/pkg/serviceaccount"
 )
 
@@ -260,6 +261,21 @@ func CreateKubeAPIServerConfig(opts options.CompletedOptions) (
 		},
 	}
 
+	if utilfeature.DefaultFeatureGate.Enabled(features.UnknownVersionInteroperabilityProxy) {
+		config.ExtraConfig.PeerEndpointLeaseReconciler, err = controlplaneapiserver.CreatePeerEndpointLeaseReconciler(*genericConfig, storageFactory)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		// build peer proxy config only if peer ca file exists
+		if opts.PeerCAFile != "" {
+			config.ExtraConfig.PeerProxy, err = controlplaneapiserver.BuildPeerProxy(versionedInformers, genericConfig.StorageVersionManager, opts.ProxyClientCertFile,
+				opts.ProxyClientKeyFile, opts.PeerCAFile, opts.PeerAdvertiseAddress, genericConfig.APIServerID, config.ExtraConfig.PeerEndpointLeaseReconciler, config.GenericConfig.Serializer)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+		}
+	}
+
 	clientCAProvider, err := opts.Authentication.ClientCert.GetClientCAContentProvider()
 	if err != nil {
 		return nil, nil, nil, err
@@ -278,6 +294,11 @@ func CreateKubeAPIServerConfig(opts options.CompletedOptions) (
 		config.ExtraConfig.ClusterAuthenticationInfo.RequestHeaderUsernameHeaders = requestHeaderConfig.UsernameHeaders
 	}
 
+	err = validateCloudProviderOptions(opts.CloudProvider)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to validate cloud provider: %w", err)
+	}
+
 	// setup admission
 	admissionConfig := &kubeapiserveradmission.Config{
 		ExternalInformers:    versionedInformers,
@@ -285,8 +306,7 @@ func CreateKubeAPIServerConfig(opts options.CompletedOptions) (
 		CloudConfigFile:      opts.CloudProvider.CloudConfigFile,
 	}
 	serviceResolver := buildServiceResolver(opts.EnableAggregatorRouting, genericConfig.LoopbackClientConfig.Host, versionedInformers)
-	schemaResolver := resolver.NewDefinitionsSchemaResolver(k8sscheme.Scheme, genericConfig.OpenAPIConfig.GetDefinitions)
-	pluginInitializers, admissionPostStartHook, err := admissionConfig.New(proxyTransport, genericConfig.EgressSelector, serviceResolver, genericConfig.TracerProvider, schemaResolver)
+	pluginInitializers, admissionPostStartHook, err := admissionConfig.New(proxyTransport, genericConfig.EgressSelector, serviceResolver, genericConfig.TracerProvider)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to create admission plugin initializer: %v", err)
 	}
@@ -341,6 +361,34 @@ func CreateKubeAPIServerConfig(opts options.CompletedOptions) (
 	config.ExtraConfig.ServiceAccountPublicKeys = pubKeys
 
 	return config, serviceResolver, pluginInitializers, nil
+}
+
+func validateCloudProviderOptions(opts *kubeoptions.CloudProviderOptions) error {
+	if opts.CloudProvider == "" {
+		return nil
+	}
+	if opts.CloudProvider == "external" {
+		if !utilfeature.DefaultFeatureGate.Enabled(features.DisableCloudProviders) {
+			return fmt.Errorf("when using --cloud-provider set to '%s', "+
+				"please set DisableCloudProviders feature to true", opts.CloudProvider)
+		}
+		if !utilfeature.DefaultFeatureGate.Enabled(features.DisableKubeletCloudCredentialProviders) {
+			return fmt.Errorf("when using --cloud-provider set to '%s', "+
+				"please set DisableKubeletCloudCredentialProviders feature to true", opts.CloudProvider)
+		}
+		return nil
+	} else if cloudprovider.IsDeprecatedInternal(opts.CloudProvider) {
+		if utilfeature.DefaultFeatureGate.Enabled(features.DisableCloudProviders) {
+			return fmt.Errorf("when using --cloud-provider set to '%s', "+
+				"please set DisableCloudProviders feature to false", opts.CloudProvider)
+		}
+		if utilfeature.DefaultFeatureGate.Enabled(features.DisableKubeletCloudCredentialProviders) {
+			return fmt.Errorf("when using --cloud-provider set to '%s', "+
+				"please set DisableKubeletCloudCredentialProviders feature to false", opts.CloudProvider)
+		}
+		return nil
+	}
+	return fmt.Errorf("unknown --cloud-provider : %s", opts.CloudProvider)
 }
 
 var testServiceResolver webhook.ServiceResolver

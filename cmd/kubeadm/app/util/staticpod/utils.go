@@ -29,6 +29,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
 
 	v1 "k8s.io/api/core/v1"
@@ -36,6 +37,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/dump"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/klog/v2"
 
 	kubeadmapi "k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm"
 	kubeadmconstants "k8s.io/kubernetes/cmd/kubeadm/app/constants"
@@ -242,20 +244,20 @@ func ReadStaticPodFromDisk(manifestPath string) (*v1.Pod, error) {
 }
 
 // LivenessProbe creates a Probe object with a HTTPGet handler
-func LivenessProbe(host, path string, port int, scheme v1.URIScheme) *v1.Probe {
+func LivenessProbe(host, path string, port int32, scheme v1.URIScheme) *v1.Probe {
 	// sets initialDelaySeconds same as periodSeconds to skip one period before running a check
 	return createHTTPProbe(host, path, port, scheme, 10, 15, 8, 10)
 }
 
 // ReadinessProbe creates a Probe object with a HTTPGet handler
-func ReadinessProbe(host, path string, port int, scheme v1.URIScheme) *v1.Probe {
+func ReadinessProbe(host, path string, port int32, scheme v1.URIScheme) *v1.Probe {
 	// sets initialDelaySeconds as '0' because we don't want to delay user infrastructure checks
 	// looking for "ready" status on kubeadm static Pods
 	return createHTTPProbe(host, path, port, scheme, 0, 15, 3, 1)
 }
 
 // StartupProbe creates a Probe object with a HTTPGet handler
-func StartupProbe(host, path string, port int, scheme v1.URIScheme, timeoutForControlPlane *metav1.Duration) *v1.Probe {
+func StartupProbe(host, path string, port int32, scheme v1.URIScheme, timeoutForControlPlane *metav1.Duration) *v1.Probe {
 	periodSeconds, timeoutForControlPlaneSeconds := int32(10), kubeadmconstants.DefaultControlPlaneTimeout.Seconds()
 	if timeoutForControlPlane != nil {
 		timeoutForControlPlaneSeconds = timeoutForControlPlane.Seconds()
@@ -267,13 +269,13 @@ func StartupProbe(host, path string, port int, scheme v1.URIScheme, timeoutForCo
 	return createHTTPProbe(host, path, port, scheme, periodSeconds, 15, failureThreshold, periodSeconds)
 }
 
-func createHTTPProbe(host, path string, port int, scheme v1.URIScheme, initialDelaySeconds, timeoutSeconds, failureThreshold, periodSeconds int32) *v1.Probe {
+func createHTTPProbe(host, path string, port int32, scheme v1.URIScheme, initialDelaySeconds, timeoutSeconds, failureThreshold, periodSeconds int32) *v1.Probe {
 	return &v1.Probe{
 		ProbeHandler: v1.ProbeHandler{
 			HTTPGet: &v1.HTTPGetAction{
 				Host:   host,
 				Path:   path,
-				Port:   intstr.FromInt(port),
+				Port:   intstr.FromInt32(port),
 				Scheme: scheme,
 			},
 		},
@@ -295,7 +297,7 @@ func GetAPIServerProbeAddress(endpoint *kubeadmapi.APIEndpoint) string {
 
 // GetControllerManagerProbeAddress returns the kubernetes controller manager probe address
 func GetControllerManagerProbeAddress(cfg *kubeadmapi.ClusterConfiguration) string {
-	if addr, exists := cfg.ControllerManager.ExtraArgs[kubeControllerManagerBindAddressArg]; exists {
+	if addr, idx := kubeadmapi.GetArgValue(cfg.ControllerManager.ExtraArgs, kubeControllerManagerBindAddressArg, -1); idx > -1 {
 		return getProbeAddress(addr)
 	}
 	return "127.0.0.1"
@@ -303,7 +305,7 @@ func GetControllerManagerProbeAddress(cfg *kubeadmapi.ClusterConfiguration) stri
 
 // GetSchedulerProbeAddress returns the kubernetes scheduler probe address
 func GetSchedulerProbeAddress(cfg *kubeadmapi.ClusterConfiguration) string {
-	if addr, exists := cfg.Scheduler.ExtraArgs[kubeSchedulerBindAddressArg]; exists {
+	if addr, idx := kubeadmapi.GetArgValue(cfg.Scheduler.ExtraArgs, kubeSchedulerBindAddressArg, -1); idx > -1 {
 		return getProbeAddress(addr)
 	}
 	return "127.0.0.1"
@@ -312,7 +314,7 @@ func GetSchedulerProbeAddress(cfg *kubeadmapi.ClusterConfiguration) string {
 // GetEtcdProbeEndpoint takes a kubeadm Etcd configuration object and attempts to parse
 // the first URL in the listen-metrics-urls argument, returning an etcd probe hostname,
 // port and scheme
-func GetEtcdProbeEndpoint(cfg *kubeadmapi.Etcd, isIPv6 bool) (string, int, v1.URIScheme) {
+func GetEtcdProbeEndpoint(cfg *kubeadmapi.Etcd, isIPv6 bool) (string, int32, v1.URIScheme) {
 	localhost := "127.0.0.1"
 	if isIPv6 {
 		localhost = "::1"
@@ -320,7 +322,7 @@ func GetEtcdProbeEndpoint(cfg *kubeadmapi.Etcd, isIPv6 bool) (string, int, v1.UR
 	if cfg.Local == nil || cfg.Local.ExtraArgs == nil {
 		return localhost, kubeadmconstants.EtcdMetricsPort, v1.URISchemeHTTP
 	}
-	if arg, exists := cfg.Local.ExtraArgs["listen-metrics-urls"]; exists {
+	if arg, idx := kubeadmapi.GetArgValue(cfg.Local.ExtraArgs, "listen-metrics-urls", -1); idx > -1 {
 		// Use the first url in the listen-metrics-urls if multiple URL's are specified.
 		arg = strings.Split(arg, ",")[0]
 		parsedURL, err := url.Parse(arg)
@@ -346,7 +348,7 @@ func GetEtcdProbeEndpoint(cfg *kubeadmapi.Etcd, isIPv6 bool) (string, int, v1.UR
 				port = p
 			}
 		}
-		return hostname, port, scheme
+		return hostname, int32(port), scheme
 	}
 	return localhost, kubeadmconstants.EtcdMetricsPort, v1.URISchemeHTTP
 }
@@ -367,8 +369,11 @@ func ManifestFilesAreEqual(path1, path2 string) (bool, error) {
 	hash1 := hasher.Sum(nil)[0:]
 	DeepHashObject(hasher, pod2)
 	hash2 := hasher.Sum(nil)[0:]
-
-	return bytes.Equal(hash1, hash2), nil
+	if bytes.Equal(hash1, hash2) {
+		return true, nil
+	}
+	klog.V(4).Infof("Pod manifest files diff:\n%s\n", cmp.Diff(pod1, pod2))
+	return false, nil
 }
 
 // getProbeAddress returns a valid probe address.

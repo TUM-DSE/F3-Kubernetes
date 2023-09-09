@@ -671,7 +671,7 @@ func failureTrap(ctx context.Context, c clientset.Interface, ns string) {
 }
 
 func intOrStrP(num int) *intstr.IntOrString {
-	intstr := intstr.FromInt(num)
+	intstr := intstr.FromInt32(int32(num))
 	return &intstr
 }
 
@@ -737,7 +737,7 @@ func testDeleteDeployment(ctx context.Context, f *framework.Framework) {
 	framework.ExpectNoError(err)
 	newRS, err := testutil.GetNewReplicaSet(deployment, c)
 	framework.ExpectNoError(err)
-	framework.ExpectNotEqual(newRS, nilRs)
+	gomega.Expect(newRS).NotTo(gomega.Equal(nilRs))
 	stopDeployment(ctx, c, ns, deploymentName)
 }
 

@@ -801,7 +801,7 @@ func (p *PersistentVolumeClaimWrapper) AccessModes(accessModes []v1.PersistentVo
 
 // Resources sets `resources` as the resource requirements of the inner
 // PersistentVolumeClaim.
-func (p *PersistentVolumeClaimWrapper) Resources(resources v1.ResourceRequirements) *PersistentVolumeClaimWrapper {
+func (p *PersistentVolumeClaimWrapper) Resources(resources v1.VolumeResourceRequirements) *PersistentVolumeClaimWrapper {
 	p.PersistentVolumeClaim.Spec.Resources = resources
 	return p
 }
@@ -967,11 +967,12 @@ func (wrapper *PodSchedulingWrapper) Namespace(s string) *PodSchedulingWrapper {
 func (wrapper *PodSchedulingWrapper) OwnerReference(name, uid string, gvk schema.GroupVersionKind) *PodSchedulingWrapper {
 	wrapper.OwnerReferences = []metav1.OwnerReference{
 		{
-			APIVersion: gvk.GroupVersion().String(),
-			Kind:       gvk.Kind,
-			Name:       name,
-			UID:        types.UID(uid),
-			Controller: pointer.Bool(true),
+			APIVersion:         gvk.GroupVersion().String(),
+			Kind:               gvk.Kind,
+			Name:               name,
+			UID:                types.UID(uid),
+			Controller:         pointer.Bool(true),
+			BlockOwnerDeletion: pointer.Bool(true),
 		},
 	}
 	return wrapper

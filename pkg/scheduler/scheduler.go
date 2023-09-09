@@ -23,8 +23,10 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/informers"
 	coreinformers "k8s.io/client-go/informers/core/v1"
@@ -33,6 +35,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 	configv1 "k8s.io/kube-scheduler/config/v1"
+	"k8s.io/kubernetes/pkg/features"
 	schedulerapi "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config/scheme"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
@@ -69,7 +72,7 @@ type Scheduler struct {
 	// is available. We don't use a channel for this, because scheduling
 	// a pod may take some amount of time and we don't want pods to get
 	// stale while they sit in a channel.
-	NextPod func() *framework.QueuedPodInfo
+	NextPod func() (*framework.QueuedPodInfo, error)
 
 	// FailureHandler is called upon a scheduling failure.
 	FailureHandler FailureHandlerFn
@@ -344,12 +347,12 @@ func New(ctx context.Context,
 		nodeInfoSnapshot:         snapshot,
 		percentageOfNodesToScore: options.percentageOfNodesToScore,
 		Extenders:                extenders,
-		NextPod:                  internalqueue.MakeNextPodFunc(logger, podQueue),
 		StopEverything:           stopEverything,
 		SchedulingQueue:          podQueue,
 		Profiles:                 profiles,
 		logger:                   logger,
 	}
+	sched.NextPod = podQueue.Pop
 	sched.applyDefaultHandlers()
 
 	if err = addAllEventHandlers(sched, informerFactory, dynInformerFactory, unionedGVKs(queueingHintsPerProfile)); err != nil {
@@ -361,7 +364,7 @@ func New(ctx context.Context,
 
 // defaultQueueingHintFn is the default queueing hint function.
 // It always returns QueueAfterBackoff as the queueing hint.
-var defaultQueueingHintFn = func(_ *v1.Pod, _, _ interface{}) framework.QueueingHint {
+var defaultQueueingHintFn = func(_ klog.Logger, _ *v1.Pod, _, _ interface{}) framework.QueueingHint {
 	return framework.QueueAfterBackoff
 }
 
@@ -377,7 +380,7 @@ func buildQueueingHintMap(es []framework.EnqueueExtensions) internalqueue.Queuei
 
 		for _, event := range events {
 			fn := event.QueueingHintFn
-			if fn == nil {
+			if fn == nil || !utilfeature.DefaultFeatureGate.Enabled(features.SchedulerQueueingHints) {
 				fn = defaultQueueingHintFn
 			}
 
@@ -499,5 +502,16 @@ func newPodInformer(cs clientset.Interface, resyncPeriod time.Duration) cache.Sh
 	tweakListOptions := func(options *metav1.ListOptions) {
 		options.FieldSelector = selector
 	}
-	return coreinformers.NewFilteredPodInformer(cs, metav1.NamespaceAll, resyncPeriod, cache.Indexers{}, tweakListOptions)
+	informer := coreinformers.NewFilteredPodInformer(cs, metav1.NamespaceAll, resyncPeriod, cache.Indexers{}, tweakListOptions)
+
+	// Dropping `.metadata.managedFields` to improve memory usage.
+	// The Extract workflow (i.e. `ExtractPod`) should be unused.
+	trim := func(obj interface{}) (interface{}, error) {
+		if accessor, err := meta.Accessor(obj); err == nil {
+			accessor.SetManagedFields(nil)
+		}
+		return obj, nil
+	}
+	informer.SetTransform(trim)
+	return informer
 }

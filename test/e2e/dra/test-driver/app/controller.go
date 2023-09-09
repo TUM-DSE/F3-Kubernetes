@@ -38,10 +38,11 @@ import (
 )
 
 type Resources struct {
-	NodeLocal      bool
-	Nodes          []string
-	MaxAllocations int
-	Shareable      bool
+	DontSetReservedFor bool
+	NodeLocal          bool
+	Nodes              []string
+	MaxAllocations     int
+	Shareable          bool
 
 	// AllocateWrapper, if set, gets called for each Allocate call.
 	AllocateWrapper AllocateWrapperType
@@ -62,6 +63,9 @@ type ExampleController struct {
 	mutex sync.Mutex
 	// allocated maps claim.UID to the node (if network-attached) or empty (if not).
 	allocated map[types.UID]string
+	// claimsPerNode counts how many claims are currently allocated for a node (non-empty key)
+	// or allocated for the entire cluster (empty key). Must be kept in sync with allocated.
+	claimsPerNode map[string]int
 
 	numAllocations, numDeallocations int64
 }
@@ -72,7 +76,8 @@ func NewController(clientset kubernetes.Interface, driverName string, resources 
 		resources:  resources,
 		driverName: driverName,
 
-		allocated: make(map[types.UID]string),
+		allocated:     make(map[types.UID]string),
+		claimsPerNode: make(map[string]int),
 	}
 	return c
 }
@@ -80,6 +85,7 @@ func NewController(clientset kubernetes.Interface, driverName string, resources 
 func (c *ExampleController) Run(ctx context.Context, workers int) {
 	informerFactory := informers.NewSharedInformerFactory(c.clientset, 0 /* resync period */)
 	ctrl := controller.New(ctx, c.driverName, c, c.clientset, informerFactory)
+	ctrl.SetReservedFor(!c.resources.DontSetReservedFor)
 	informerFactory.Start(ctx.Done())
 	ctrl.Run(workers)
 	// If we get here, the context was canceled and we can wait for informer factory goroutines.
@@ -92,16 +98,6 @@ type parameters struct {
 }
 
 var _ controller.Driver = &ExampleController{}
-
-func (c *ExampleController) countAllocations(node string) int {
-	total := 0
-	for _, n := range c.allocated {
-		if n == node {
-			total++
-		}
-	}
-	return total
-}
 
 // GetNumAllocations returns the number of times that a claim was allocated.
 // Idempotent calls to Allocate that do not need to allocate the claim again do
@@ -202,7 +198,7 @@ func (c *ExampleController) allocateOne(ctx context.Context, claim *resourcev1al
 				var viableNodes []string
 				for _, n := range c.resources.Nodes {
 					if c.resources.MaxAllocations == 0 ||
-						c.countAllocations(n) < c.resources.MaxAllocations {
+						c.claimsPerNode[n] < c.resources.MaxAllocations {
 						viableNodes = append(viableNodes, n)
 					}
 				}
@@ -215,7 +211,7 @@ func (c *ExampleController) allocateOne(ctx context.Context, claim *resourcev1al
 				logger.V(3).Info("picked a node ourselves", "selectedNode", selectedNode)
 			} else if !contains(c.resources.Nodes, node) ||
 				c.resources.MaxAllocations > 0 &&
-					c.countAllocations(node) >= c.resources.MaxAllocations {
+					c.claimsPerNode[node] >= c.resources.MaxAllocations {
 				return nil, fmt.Errorf("resources exhausted on node %q", node)
 			}
 		} else {
@@ -269,6 +265,7 @@ func (c *ExampleController) allocateOne(ctx context.Context, claim *resourcev1al
 	if !alreadyAllocated {
 		c.numAllocations++
 		c.allocated[claim.UID] = node
+		c.claimsPerNode[node]++
 	}
 	return allocation, nil
 }
@@ -278,7 +275,8 @@ func (c *ExampleController) Deallocate(ctx context.Context, claim *resourcev1alp
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	if _, ok := c.allocated[claim.UID]; !ok {
+	node, ok := c.allocated[claim.UID]
+	if !ok {
 		logger.V(3).Info("already deallocated")
 		return nil
 	}
@@ -286,6 +284,7 @@ func (c *ExampleController) Deallocate(ctx context.Context, claim *resourcev1alp
 	logger.V(3).Info("done")
 	c.numDeallocations++
 	delete(c.allocated, claim.UID)
+	c.claimsPerNode[node]--
 	return nil
 }
 
@@ -305,10 +304,6 @@ func (c *ExampleController) UnsuitableNodes(ctx context.Context, pod *v1.Pod, cl
 		return nil
 	}
 	if c.resources.NodeLocal {
-		allocationsPerNode := make(map[string]int)
-		for _, node := range c.resources.Nodes {
-			allocationsPerNode[node] = c.countAllocations(node)
-		}
 		for _, claim := range claims {
 			claim.UnsuitableNodes = nil
 			for _, node := range potentialNodes {
@@ -318,7 +313,7 @@ func (c *ExampleController) UnsuitableNodes(ctx context.Context, pod *v1.Pod, cl
 				// for all of them. Also, nodes that the driver
 				// doesn't run on cannot be used.
 				if !contains(c.resources.Nodes, node) ||
-					allocationsPerNode[node]+len(claims) > c.resources.MaxAllocations {
+					c.claimsPerNode[node]+len(claims) > c.resources.MaxAllocations {
 					claim.UnsuitableNodes = append(claim.UnsuitableNodes, node)
 				}
 			}
@@ -326,7 +321,7 @@ func (c *ExampleController) UnsuitableNodes(ctx context.Context, pod *v1.Pod, cl
 		return nil
 	}
 
-	allocations := c.countAllocations("")
+	allocations := c.claimsPerNode[""]
 	for _, claim := range claims {
 		claim.UnsuitableNodes = nil
 		for _, node := range potentialNodes {
