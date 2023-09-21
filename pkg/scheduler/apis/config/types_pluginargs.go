@@ -113,6 +113,17 @@ type PodTopologySpreadArgs struct {
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
+// FPGASchedulingArgs holds arguments used to configure the FPGAScheduling plugin.
+type FPGASchedulingArgs struct {
+	metav1.TypeMeta
+
+	RecentUsageTimeWeight           float64
+	RecentReconfigurationTimeWeight float64
+	BitstreamLocalityWeight         float64
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
 // NodeResourcesBalancedAllocationArgs holds arguments used to configure NodeResourcesBalancedAllocation plugin.
 type NodeResourcesBalancedAllocationArgs struct {
 	metav1.TypeMeta
