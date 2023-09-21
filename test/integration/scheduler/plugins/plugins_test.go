@@ -62,7 +62,7 @@ var (
 
 // newPlugin returns a plugin factory with specified Plugin.
 func newPlugin(plugin framework.Plugin) frameworkruntime.PluginFactory {
-	return func(_ runtime.Object, fh framework.Handle) (framework.Plugin, error) {
+	return func(_ context.Context, _ runtime.Object, fh framework.Handle) (framework.Plugin, error) {
 		switch pl := plugin.(type) {
 		case *PermitPlugin:
 			pl.fh = fh
@@ -2307,8 +2307,11 @@ func TestPreemptWithPermitPlugin(t *testing.T) {
 			preemptor:              st.MakePod().Name("preemptor-pod").Namespace(ns).Priority(highPriority).Req(preemptorReq).ZeroTerminationGracePeriod().Obj(),
 		},
 		{
-			name:                   "rejecting a waiting pod to trigger retrying unschedulable pods immediately, but the waiting pod itself won't be retried",
-			maxNumWaitingPodCalled: 1,
+			// The waiting Pod has once gone through the scheduling cycle,
+			// and we don't know if it's schedulable or not after it's preempted.
+			// So, we should retry the scheduling of it so that it won't stuck in the unschedulable Pod pool.
+			name:                   "rejecting a waiting pod to trigger retrying unschedulable pods immediately, and the waiting pod itself will be retried",
+			maxNumWaitingPodCalled: 2,
 			waitingPod:             st.MakePod().Name("waiting-pod").Namespace(ns).Priority(lowPriority).Req(resReq).ZeroTerminationGracePeriod().Obj(),
 			preemptor:              st.MakePod().Name("preemptor-pod").Namespace(ns).Priority(highPriority).Req(preemptorReq).ZeroTerminationGracePeriod().Obj(),
 		},
@@ -2515,7 +2518,7 @@ func (j *JobPlugin) PostBind(_ context.Context, state *framework.CycleState, p *
 func TestActivatePods(t *testing.T) {
 	var jobPlugin *JobPlugin
 	// Create a plugin registry for testing. Register a Job plugin.
-	registry := frameworkruntime.Registry{jobPluginName: func(_ runtime.Object, fh framework.Handle) (framework.Plugin, error) {
+	registry := frameworkruntime.Registry{jobPluginName: func(_ context.Context, _ runtime.Object, fh framework.Handle) (framework.Plugin, error) {
 		jobPlugin = &JobPlugin{podLister: fh.SharedInformerFactory().Core().V1().Pods().Lister()}
 		return jobPlugin, nil
 	}}

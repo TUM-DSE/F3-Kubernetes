@@ -65,7 +65,7 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.8.2
 	github.com/vishvananda/netlink v1.1.0
-	github.com/vmware/govmomi v0.30.0
+	github.com/vmware/govmomi v0.30.6
 	go.etcd.io/etcd/api/v3 v3.5.9
 	go.etcd.io/etcd/client/pkg/v3 v3.5.9
 	go.etcd.io/etcd/client/v3 v3.5.9
@@ -110,12 +110,12 @@ require (
 	k8s.io/csi-translation-lib v0.0.0
 	k8s.io/dynamic-resource-allocation v0.0.0
 	k8s.io/endpointslice v0.0.0
-	k8s.io/gengo v0.0.0-20220902162205-c0856e24416d
+	k8s.io/gengo v0.0.0-20230829151522-9cce18d56c01
 	k8s.io/klog/v2 v2.100.1
 	k8s.io/kms v0.0.0
 	k8s.io/kube-aggregator v0.0.0
 	k8s.io/kube-controller-manager v0.0.0
-	k8s.io/kube-openapi v0.0.0-20230717233707-2695361300d9
+	k8s.io/kube-openapi v0.0.0-20230905202853-d090da108d2f
 	k8s.io/kube-proxy v0.0.0
 	k8s.io/kube-scheduler v0.0.0
 	k8s.io/kubectl v0.0.0
@@ -126,7 +126,7 @@ require (
 	k8s.io/pod-security-admission v0.0.0
 	k8s.io/sample-apiserver v0.0.0
 	k8s.io/system-validators v1.8.0
-	k8s.io/utils v0.0.0-20230406110748-d93618cff8a2
+	k8s.io/utils v0.0.0-20230726121419-3b25d923346b
 	sigs.k8s.io/structured-merge-diff/v4 v4.3.0
 	sigs.k8s.io/yaml v1.3.0
 )
