@@ -50,6 +50,18 @@ var pluginConfigs = []v1beta2.PluginConfig{
 			}},
 	},
 	{
+		Name: "FPGAScheduling",
+		Args: runtime.RawExtension{Object: &v1beta2.FPGASchedulingArgs{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "FPGASchedulingArgs",
+				APIVersion: "kubescheduler.config.k8s.io/v1beta2",
+			},
+			RecentUsageTimeWeight:           2,
+			RecentReconfigurationTimeWeight: 2,
+			BitstreamLocalityWeight:         1,
+		}},
+	},
+	{
 		Name: "InterPodAffinity",
 		Args: runtime.RawExtension{
 			Object: &v1beta2.InterPodAffinityArgs{
@@ -114,6 +126,34 @@ var pluginConfigs = []v1beta2.PluginConfig{
 	},
 }
 
+/*
+	{
+		Name: "FPGAScheduling",
+		Args: runtime.RawExtension{Object: &v1beta2.FPGASchedulingArgs{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "FPGASchedulingArgs",
+				APIVersion: "kubescheduler.config.k8s.io/v1beta2",
+			},
+			RecentUsageTimeWeight:           2,
+			RecentReconfigurationTimeWeight: 2,
+			BitstreamLocalityWeight:         1,
+		}},
+	},
+
+	{
+								Name: "FPGAScheduling",
+								Args: runtime.RawExtension{Object: &v1beta2.FPGASchedulingArgs{
+									TypeMeta: metav1.TypeMeta{
+										Kind:       "FPGASchedulingArgs",
+										APIVersion: "kubescheduler.config.k8s.io/v1beta2",
+									},
+									RecentUsageTimeWeight:           2,
+									RecentReconfigurationTimeWeight: 2,
+									BitstreamLocalityWeight:         1,
+								}},
+							},
+*/
+
 func TestSchedulerDefaults(t *testing.T) {
 	enable := true
 	tests := []struct {
@@ -144,7 +184,7 @@ func TestSchedulerDefaults(t *testing.T) {
 					Burst:       100,
 					ContentType: "application/vnd.kubernetes.protobuf",
 				},
-				PercentageOfNodesToScore: pointer.Int32Ptr(0),
+				PercentageOfNodesToScore: pointer.Int32Ptr(100),
 				PodInitialBackoffSeconds: pointer.Int64Ptr(1),
 				PodMaxBackoffSeconds:     pointer.Int64Ptr(10),
 				Profiles: []v1beta2.KubeSchedulerProfile{
@@ -181,7 +221,7 @@ func TestSchedulerDefaults(t *testing.T) {
 					Burst:       100,
 					ContentType: "application/vnd.kubernetes.protobuf",
 				},
-				PercentageOfNodesToScore: pointer.Int32Ptr(0),
+				PercentageOfNodesToScore: pointer.Int32Ptr(100),
 				PodInitialBackoffSeconds: pointer.Int64Ptr(1),
 				PodMaxBackoffSeconds:     pointer.Int64Ptr(10),
 				Profiles: []v1beta2.KubeSchedulerProfile{
@@ -237,7 +277,7 @@ func TestSchedulerDefaults(t *testing.T) {
 					Burst:       100,
 					ContentType: "application/vnd.kubernetes.protobuf",
 				},
-				PercentageOfNodesToScore: pointer.Int32Ptr(0),
+				PercentageOfNodesToScore: pointer.Int32Ptr(100),
 				PodInitialBackoffSeconds: pointer.Int64Ptr(1),
 				PodMaxBackoffSeconds:     pointer.Int64Ptr(10),
 				Profiles: []v1beta2.KubeSchedulerProfile{
@@ -256,6 +296,18 @@ func TestSchedulerDefaults(t *testing.T) {
 										MinCandidateNodesPercentage: pointer.Int32Ptr(10),
 										MinCandidateNodesAbsolute:   pointer.Int32Ptr(100),
 									}},
+							},
+							{
+								Name: "FPGAScheduling",
+								Args: runtime.RawExtension{Object: &v1beta2.FPGASchedulingArgs{
+									TypeMeta: metav1.TypeMeta{
+										Kind:       "FPGASchedulingArgs",
+										APIVersion: "kubescheduler.config.k8s.io/v1beta2",
+									},
+									RecentUsageTimeWeight:           2,
+									RecentReconfigurationTimeWeight: 2,
+									BitstreamLocalityWeight:         1,
+								}},
 							},
 							{
 								Name: "InterPodAffinity",
@@ -300,6 +352,7 @@ func TestSchedulerDefaults(t *testing.T) {
 									},
 								}},
 							},
+
 							{
 								Name: "PodTopologySpread",
 								Args: runtime.RawExtension{Object: &v1beta2.PodTopologySpreadArgs{
@@ -328,6 +381,7 @@ func TestSchedulerDefaults(t *testing.T) {
 							QueueSort: v1beta2.PluginSet{
 								Enabled: []v1beta2.Plugin{
 									{Name: names.PrioritySort},
+									{Name: names.FPGAScheduling},
 								},
 							},
 							PreFilter: v1beta2.PluginSet{
@@ -349,6 +403,7 @@ func TestSchedulerDefaults(t *testing.T) {
 									{Name: names.NodeAffinity},
 									{Name: names.NodePorts},
 									{Name: names.NodeResourcesFit},
+									{Name: names.FPGAScheduling},
 									{Name: names.VolumeRestrictions},
 									{Name: names.EBSLimits},
 									{Name: names.GCEPDLimits},
@@ -369,6 +424,7 @@ func TestSchedulerDefaults(t *testing.T) {
 								Enabled: []v1beta2.Plugin{
 									{Name: names.InterPodAffinity},
 									{Name: names.PodTopologySpread},
+									{Name: names.FPGAScheduling},
 									{Name: names.TaintToleration},
 									{Name: names.NodeAffinity},
 								},
@@ -379,6 +435,7 @@ func TestSchedulerDefaults(t *testing.T) {
 									{Name: names.ImageLocality, Weight: pointer.Int32Ptr(1)},
 									{Name: names.InterPodAffinity, Weight: pointer.Int32Ptr(1)},
 									{Name: names.NodeResourcesFit, Weight: pointer.Int32Ptr(1)},
+									{Name: names.FPGAScheduling, Weight: pointer.Int32Ptr(1)},
 									{Name: names.NodeAffinity, Weight: pointer.Int32Ptr(1)},
 									{Name: names.PodTopologySpread, Weight: pointer.Int32Ptr(2)},
 									{Name: names.TaintToleration, Weight: pointer.Int32Ptr(1)},
@@ -430,7 +487,7 @@ func TestSchedulerDefaults(t *testing.T) {
 					Burst:       100,
 					ContentType: "application/vnd.kubernetes.protobuf",
 				},
-				PercentageOfNodesToScore: pointer.Int32Ptr(0),
+				PercentageOfNodesToScore: pointer.Int32Ptr(100),
 				PodInitialBackoffSeconds: pointer.Int64Ptr(1),
 				PodMaxBackoffSeconds:     pointer.Int64Ptr(10),
 				Profiles: []v1beta2.KubeSchedulerProfile{

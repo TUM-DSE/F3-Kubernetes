@@ -22,6 +22,7 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultpreemption"
 	plfeature "k8s.io/kubernetes/pkg/scheduler/framework/plugins/feature"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/fpgascheduling"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/imagelocality"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/interpodaffinity"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
@@ -76,5 +77,6 @@ func NewInTreeRegistry() runtime.Registry {
 		queuesort.Name:                       queuesort.New,
 		defaultbinder.Name:                   defaultbinder.New,
 		defaultpreemption.Name:               runtime.FactoryAdapter(fts, defaultpreemption.New),
+		fpgascheduling.Name:                  fpgascheduling.New,
 	}
 }

@@ -31,6 +31,7 @@ import (
 // All generated defaulters are covering - they call all nested defaulters.
 func RegisterDefaults(scheme *runtime.Scheme) error {
 	scheme.AddTypeDefaultingFunc(&v1beta2.DefaultPreemptionArgs{}, func(obj interface{}) { SetObjectDefaults_DefaultPreemptionArgs(obj.(*v1beta2.DefaultPreemptionArgs)) })
+	scheme.AddTypeDefaultingFunc(&v1beta2.FPGASchedulingArgs{}, func(obj interface{}) { SetObjectDefaults_FPGASchedulingArgs(obj.(*v1beta2.FPGASchedulingArgs)) })
 	scheme.AddTypeDefaultingFunc(&v1beta2.InterPodAffinityArgs{}, func(obj interface{}) { SetObjectDefaults_InterPodAffinityArgs(obj.(*v1beta2.InterPodAffinityArgs)) })
 	scheme.AddTypeDefaultingFunc(&v1beta2.KubeSchedulerConfiguration{}, func(obj interface{}) {
 		SetObjectDefaults_KubeSchedulerConfiguration(obj.(*v1beta2.KubeSchedulerConfiguration))
@@ -46,6 +47,10 @@ func RegisterDefaults(scheme *runtime.Scheme) error {
 
 func SetObjectDefaults_DefaultPreemptionArgs(in *v1beta2.DefaultPreemptionArgs) {
 	SetDefaults_DefaultPreemptionArgs(in)
+}
+
+func SetObjectDefaults_FPGASchedulingArgs(in *v1beta2.FPGASchedulingArgs) {
+	SetDefaults_FPGASchedulingArgs(in)
 }
 
 func SetObjectDefaults_InterPodAffinityArgs(in *v1beta2.InterPodAffinityArgs) {

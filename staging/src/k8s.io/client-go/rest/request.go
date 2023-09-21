@@ -1195,13 +1195,13 @@ const maxUnstructuredResponseTextBytes = 2048
 // 1. Assume the server sends you something sane - JSON + well defined error objects + proper codes
 //   - this is the happy path
 //   - when you get this output, trust what the server sends
-//  2. Guard against empty fields / bodies in received JSON and attempt to cull sufficient info from them to
+//     2. Guard against empty fields / bodies in received JSON and attempt to cull sufficient info from them to
 //     generate a reasonable facsimile of the original failure.
-//     - Be sure to use a distinct error type or flag that allows a client to distinguish between this and error 1 above
-//  3. Handle true disconnect failures / completely malformed data by moving up to a more generic client error
-//  4. Distinguish between various connection failures like SSL certificates, timeouts, proxy errors, unexpected
+//   - Be sure to use a distinct error type or flag that allows a client to distinguish between this and error 1 above
+//     3. Handle true disconnect failures / completely malformed data by moving up to a more generic client error
+//     4. Distinguish between various connection failures like SSL certificates, timeouts, proxy errors, unexpected
 //     initial contact, the presence of mismatched body contents from posted content types
-//     - Give these a separate distinct error type and capture as much as possible of the original message
+//   - Give these a separate distinct error type and capture as much as possible of the original message
 //
 // TODO: introduce transformation of generic http.Client.Do() errors that separates 4.
 func (r *Request) transformUnstructuredResponseError(resp *http.Response, req *http.Request, body []byte) error {

@@ -37,6 +37,7 @@ const (
 
 // ensureStrategy provides a strategy for ensuring apf bootstrap configurationWrapper.
 // We have two types of configurationWrapper objects:
+//
 //   - mandatory: the mandatory configurationWrapper objects are about ensuring that the P&F
 //     system itself won't crash; we have to be sure there's 'catch-all' place for
 //     everything to go. Any changes made by the cluster operators to these

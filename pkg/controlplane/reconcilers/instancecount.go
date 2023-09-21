@@ -217,13 +217,13 @@ func checkEndpointSubsetFormat(e *corev1.Endpoints, ip string, ports []corev1.En
 
 // GetMasterServiceUpdateIfNeeded sets service attributes for the
 //
-//	given apiserver service.
-//   - GetMasterServiceUpdateIfNeeded expects that the service object it
-//     manages will be managed only by GetMasterServiceUpdateIfNeeded;
-//     therefore, to understand this, you need only understand the
-//     requirements and the body of this function.
-//   - GetMasterServiceUpdateIfNeeded ensures that the correct ports are
-//     are set.
+//		given apiserver service.
+//	  - GetMasterServiceUpdateIfNeeded expects that the service object it
+//	    manages will be managed only by GetMasterServiceUpdateIfNeeded;
+//	    therefore, to understand this, you need only understand the
+//	    requirements and the body of this function.
+//	  - GetMasterServiceUpdateIfNeeded ensures that the correct ports are
+//	    are set.
 //
 // Requirements:
 //   - All apiservers MUST use GetMasterServiceUpdateIfNeeded and only

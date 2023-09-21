@@ -41,6 +41,7 @@ func TestApplyFeatureGates(t *testing.T) {
 				QueueSort: v1beta2.PluginSet{
 					Enabled: []v1beta2.Plugin{
 						{Name: names.PrioritySort},
+						{Name: names.FPGAScheduling},
 					},
 				},
 				PreFilter: v1beta2.PluginSet{
@@ -62,6 +63,7 @@ func TestApplyFeatureGates(t *testing.T) {
 						{Name: names.NodeAffinity},
 						{Name: names.NodePorts},
 						{Name: names.NodeResourcesFit},
+						{Name: names.FPGAScheduling},
 						{Name: names.VolumeRestrictions},
 						{Name: names.EBSLimits},
 						{Name: names.GCEPDLimits},
@@ -82,6 +84,7 @@ func TestApplyFeatureGates(t *testing.T) {
 					Enabled: []v1beta2.Plugin{
 						{Name: names.InterPodAffinity},
 						{Name: names.PodTopologySpread},
+						{Name: names.FPGAScheduling},
 						{Name: names.TaintToleration},
 						{Name: names.NodeAffinity},
 					},
@@ -92,6 +95,7 @@ func TestApplyFeatureGates(t *testing.T) {
 						{Name: names.ImageLocality, Weight: pointer.Int32Ptr(1)},
 						{Name: names.InterPodAffinity, Weight: pointer.Int32Ptr(1)},
 						{Name: names.NodeResourcesFit, Weight: pointer.Int32Ptr(1)},
+						{Name: names.FPGAScheduling, Weight: pointer.Int32Ptr(1)},
 						{Name: names.NodeAffinity, Weight: pointer.Int32Ptr(1)},
 						{Name: names.PodTopologySpread, Weight: pointer.Int32Ptr(2)},
 						{Name: names.TaintToleration, Weight: pointer.Int32Ptr(1)},
@@ -123,6 +127,7 @@ func TestApplyFeatureGates(t *testing.T) {
 				QueueSort: v1beta2.PluginSet{
 					Enabled: []v1beta2.Plugin{
 						{Name: names.PrioritySort},
+						{Name: names.FPGAScheduling},
 					},
 				},
 				PreFilter: v1beta2.PluginSet{
@@ -144,6 +149,7 @@ func TestApplyFeatureGates(t *testing.T) {
 						{Name: names.NodeAffinity},
 						{Name: names.NodePorts},
 						{Name: names.NodeResourcesFit},
+						{Name: names.FPGAScheduling},
 						{Name: names.VolumeRestrictions},
 						{Name: names.EBSLimits},
 						{Name: names.GCEPDLimits},
@@ -164,6 +170,7 @@ func TestApplyFeatureGates(t *testing.T) {
 					Enabled: []v1beta2.Plugin{
 						{Name: names.InterPodAffinity},
 						{Name: names.PodTopologySpread},
+						{Name: names.FPGAScheduling},
 						{Name: names.TaintToleration},
 						{Name: names.NodeAffinity},
 						{Name: names.SelectorSpread},
@@ -175,6 +182,7 @@ func TestApplyFeatureGates(t *testing.T) {
 						{Name: names.ImageLocality, Weight: pointer.Int32Ptr(1)},
 						{Name: names.InterPodAffinity, Weight: pointer.Int32Ptr(1)},
 						{Name: names.NodeResourcesFit, Weight: pointer.Int32Ptr(1)},
+						{Name: names.FPGAScheduling, Weight: pointer.Int32Ptr(1)},
 						{Name: names.NodeAffinity, Weight: pointer.Int32Ptr(1)},
 						{Name: names.PodTopologySpread, Weight: pointer.Int32Ptr(2)},
 						{Name: names.TaintToleration, Weight: pointer.Int32Ptr(1)},

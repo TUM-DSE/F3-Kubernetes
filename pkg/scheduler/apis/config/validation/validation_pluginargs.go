@@ -316,3 +316,13 @@ func ValidateNodeResourcesFitArgs(path *field.Path, args *config.NodeResourcesFi
 	}
 	return allErrs.ToAggregate()
 }
+
+func ValidateFPGASchedulingArgs(path *field.Path, args *config.FPGASchedulingArgs) error {
+	var allErrs field.ErrorList
+
+	if args.RecentReconfigurationTimeWeight == 0 && args.BitstreamLocalityWeight == 0 && args.RecentUsageTimeWeight == 0 {
+		allErrs = append(allErrs, field.Forbidden(path, "must set at least one weight > 0 for FPGA scheduling"))
+	}
+
+	return allErrs.ToAggregate()
+}
