@@ -936,12 +936,12 @@ func TestPreemptionRaces(t *testing.T) {
 // node and a higher priority pod is nominated to run on the node, the nominated
 // node name of the lower priority pods is cleared.
 // Test scenario:
-// 1. Create a few low priority pods with long grade period that fill up a node.
-// 2. Create a medium priority pod that preempt some of those pods.
-// 3. Check that nominated node name of the medium priority pod is set.
-// 4. Create a high priority pod that preempts some pods on that node.
-// 5. Check that nominated node name of the high priority pod is set and nominated
-//    node name of the medium priority pod is cleared.
+//  1. Create a few low priority pods with long grade period that fill up a node.
+//  2. Create a medium priority pod that preempt some of those pods.
+//  3. Check that nominated node name of the medium priority pod is set.
+//  4. Create a high priority pod that preempts some pods on that node.
+//  5. Check that nominated node name of the high priority pod is set and nominated
+//     node name of the medium priority pod is cleared.
 func TestNominatedNodeCleanUp(t *testing.T) {
 	// Initialize scheduler.
 	testCtx := initTest(t, "preemption")

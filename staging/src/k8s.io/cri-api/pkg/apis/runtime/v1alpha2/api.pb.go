@@ -721,9 +721,9 @@ func (m *Int64Value) GetValue() int64 {
 
 // LinuxSandboxSecurityContext holds linux security configuration that will be
 // applied to a sandbox. Note that:
-// 1) It does not apply to containers in the pods.
-// 2) It may not be applicable to a PodSandbox which does not contain any running
-//    process.
+//  1. It does not apply to containers in the pods.
+//  2. It may not be applicable to a PodSandbox which does not contain any running
+//     process.
 type LinuxSandboxSecurityContext struct {
 	// Configurations for the sandbox's namespaces.
 	// This will be used only if the PodSandbox uses namespace for isolation.
@@ -6773,10 +6773,11 @@ var xxx_messageInfo_UpdateRuntimeConfigResponse proto.InternalMessageInfo
 // 1. Required conditions: Conditions are required for kubelet to work
 // properly. If any required condition is unmet, the node will be not ready.
 // The required conditions include:
-//   * RuntimeReady: RuntimeReady means the runtime is up and ready to accept
-//   basic containers e.g. container only needs host network.
-//   * NetworkReady: NetworkReady means the runtime network is up and ready to
-//   accept containers which require container network.
+//   - RuntimeReady: RuntimeReady means the runtime is up and ready to accept
+//     basic containers e.g. container only needs host network.
+//   - NetworkReady: NetworkReady means the runtime network is up and ready to
+//     accept containers which require container network.
+//
 // 2. Optional conditions: Conditions are informative to the user, but kubelet
 // will not rely on. Since condition type is an arbitrary string, all conditions
 // not required are optional. These conditions will be exposed to users to help

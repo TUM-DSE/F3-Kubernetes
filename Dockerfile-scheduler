@@ -1,0 +1,13 @@
+FROM golang:1.20.3-alpine3.17 AS build
+
+COPY . /go/src/github.com/GoogleCloudPlatform/kubernetes
+WORKDIR /go/src/github.com/GoogleCloudPlatform/kubernetes
+
+RUN go build -o /usr/local/bin/kube-scheduler ./cmd/kube-scheduler
+
+FROM alpine:3.17.3
+
+COPY --from=build /usr/local/bin/kube-scheduler /usr/local/bin/kube-scheduler
+
+ENTRYPOINT ["/usr/local/bin/kube-scheduler"]
+
