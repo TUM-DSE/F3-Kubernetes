@@ -32,6 +32,7 @@ func getDefaultPlugins() *v1beta2.Plugins {
 		QueueSort: v1beta2.PluginSet{
 			Enabled: []v1beta2.Plugin{
 				{Name: names.PrioritySort},
+				{Name: names.FPGAScheduling},
 			},
 		},
 		PreFilter: v1beta2.PluginSet{
@@ -53,6 +54,7 @@ func getDefaultPlugins() *v1beta2.Plugins {
 				{Name: names.NodeAffinity},
 				{Name: names.NodePorts},
 				{Name: names.NodeResourcesFit},
+				{Name: names.FPGAScheduling},
 				{Name: names.VolumeRestrictions},
 				{Name: names.EBSLimits},
 				{Name: names.GCEPDLimits},
@@ -73,6 +75,7 @@ func getDefaultPlugins() *v1beta2.Plugins {
 			Enabled: []v1beta2.Plugin{
 				{Name: names.InterPodAffinity},
 				{Name: names.PodTopologySpread},
+				{Name: names.FPGAScheduling},
 				{Name: names.TaintToleration},
 				{Name: names.NodeAffinity},
 			},
@@ -83,6 +86,7 @@ func getDefaultPlugins() *v1beta2.Plugins {
 				{Name: names.ImageLocality, Weight: pointer.Int32Ptr(1)},
 				{Name: names.InterPodAffinity, Weight: pointer.Int32Ptr(1)},
 				{Name: names.NodeResourcesFit, Weight: pointer.Int32Ptr(1)},
+				{Name: names.FPGAScheduling, Weight: pointer.Int32Ptr(1)},
 				{Name: names.NodeAffinity, Weight: pointer.Int32Ptr(1)},
 				// Weight is doubled because:
 				// - This is a score coming from user preference.

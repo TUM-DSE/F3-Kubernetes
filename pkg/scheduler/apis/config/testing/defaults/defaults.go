@@ -26,6 +26,7 @@ var PluginsV1beta2 = &config.Plugins{
 	QueueSort: config.PluginSet{
 		Enabled: []config.Plugin{
 			{Name: names.PrioritySort},
+			{Name: names.FPGAScheduling},
 		},
 	},
 	PreFilter: config.PluginSet{
@@ -47,6 +48,7 @@ var PluginsV1beta2 = &config.Plugins{
 			{Name: names.NodeAffinity},
 			{Name: names.NodePorts},
 			{Name: names.NodeResourcesFit},
+			{Name: names.FPGAScheduling},
 			{Name: names.VolumeRestrictions},
 			{Name: names.EBSLimits},
 			{Name: names.GCEPDLimits},
@@ -67,6 +69,7 @@ var PluginsV1beta2 = &config.Plugins{
 		Enabled: []config.Plugin{
 			{Name: names.InterPodAffinity},
 			{Name: names.PodTopologySpread},
+			{Name: names.FPGAScheduling},
 			{Name: names.TaintToleration},
 			{Name: names.NodeAffinity},
 		},
@@ -77,6 +80,7 @@ var PluginsV1beta2 = &config.Plugins{
 			{Name: names.ImageLocality, Weight: 1},
 			{Name: names.InterPodAffinity, Weight: 1},
 			{Name: names.NodeResourcesFit, Weight: 1},
+			{Name: names.FPGAScheduling, Weight: 1},
 			{Name: names.NodeAffinity, Weight: 1},
 			// Weight is doubled because:
 			// - This is a score coming from user preference.
@@ -138,6 +142,14 @@ var PluginConfigsV1beta2 = []config.PluginConfig{
 		},
 	},
 	{
+		Name: "FPGAScheduling",
+		Args: &config.FPGASchedulingArgs{
+			RecentUsageTimeWeight:           2,
+			RecentReconfigurationTimeWeight: 2,
+			BitstreamLocalityWeight:         1,
+		},
+	},
+	{
 		Name: "PodTopologySpread",
 		Args: &config.PodTopologySpreadArgs{
 			DefaultingType: config.SystemDefaulting,
@@ -162,6 +174,7 @@ var PluginsV1beta3 = &config.Plugins{
 			{Name: names.NodeAffinity, Weight: 2},
 			{Name: names.NodePorts},
 			{Name: names.NodeResourcesFit, Weight: 1},
+			{Name: names.FPGAScheduling, Weight: 1},
 			{Name: names.VolumeRestrictions},
 			{Name: names.EBSLimits},
 			{Name: names.GCEPDLimits},
@@ -184,6 +197,7 @@ var ExpandedPluginsV1beta3 = &config.Plugins{
 	QueueSort: config.PluginSet{
 		Enabled: []config.Plugin{
 			{Name: names.PrioritySort},
+			{Name: names.FPGAScheduling},
 		},
 	},
 	PreFilter: config.PluginSet{
@@ -205,6 +219,7 @@ var ExpandedPluginsV1beta3 = &config.Plugins{
 			{Name: names.NodeAffinity},
 			{Name: names.NodePorts},
 			{Name: names.NodeResourcesFit},
+			{Name: names.FPGAScheduling, Weight: 1},
 			{Name: names.VolumeRestrictions},
 			{Name: names.EBSLimits},
 			{Name: names.GCEPDLimits},
@@ -227,6 +242,7 @@ var ExpandedPluginsV1beta3 = &config.Plugins{
 			{Name: names.NodeAffinity},
 			{Name: names.PodTopologySpread},
 			{Name: names.InterPodAffinity},
+			{Name: names.FPGAScheduling},
 		},
 	},
 	Score: config.PluginSet{
@@ -240,6 +256,7 @@ var ExpandedPluginsV1beta3 = &config.Plugins{
 			// - This is a score coming from user preference.
 			{Name: names.NodeAffinity, Weight: 2},
 			{Name: names.NodeResourcesFit, Weight: 1},
+			{Name: names.FPGAScheduling, Weight: 1},
 			// Weight is tripled because:
 			// - This is a score coming from user preference.
 			// - Usage of node tainting to group nodes in the cluster is increasing becoming a use-case
@@ -305,6 +322,14 @@ var PluginConfigsV1beta3 = []config.PluginConfig{
 				Type:      config.LeastAllocated,
 				Resources: []config.ResourceSpec{{Name: "cpu", Weight: 1}, {Name: "memory", Weight: 1}},
 			},
+		},
+	},
+	{
+		Name: "FPGAScheduling",
+		Args: &config.FPGASchedulingArgs{
+			RecentUsageTimeWeight:           2,
+			RecentReconfigurationTimeWeight: 2,
+			BitstreamLocalityWeight:         1,
 		},
 	},
 	{

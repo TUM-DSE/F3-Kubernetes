@@ -38,6 +38,7 @@ func getDefaultPlugins() *v1beta3.Plugins {
 				{Name: names.NodeAffinity, Weight: pointer.Int32(2)},
 				{Name: names.NodePorts},
 				{Name: names.NodeResourcesFit, Weight: pointer.Int32(1)},
+				{Name: names.FPGAScheduling, Weight: pointer.Int32(1)},
 				{Name: names.VolumeRestrictions},
 				{Name: names.EBSLimits},
 				{Name: names.GCEPDLimits},
